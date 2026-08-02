@@ -15,6 +15,7 @@ library;
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:xml/xml.dart';
 
 import 'registry.dart';
 import 'url_safety.dart';
@@ -94,18 +95,88 @@ class DuckDuckGoBackend implements WebSearchBackend {
   }
 }
 
-/// 活动搜索后端。
-WebSearchBackend webSearchBackend = DuckDuckGoBackend();
+/// 必应 RSS 后端（免费无 key，中文搜索质量高）。
+///
+/// `cn.bing.com/search?q=<query>&format=rss&mkt=zh-CN` 返回标准 RSS 2.0 XML，
+/// `<item>` 的 title/link/description 直接可解析，link 是原始 URL（无 /ck/a 包装）。
+class BingBackend implements WebSearchBackend {
+  @override
+  bool get requiresKey => false;
+
+  @override
+  Future<List<Map<String, dynamic>>> search(String query, int limit) async {
+    try {
+      final uri = Uri.https('cn.bing.com', '/search', {
+        'q': query,
+        'format': 'rss',
+        'mkt': 'zh-CN',
+      });
+      final resp = await webHttpClient.get(
+        uri,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) {
+        return const [];
+      }
+      final xmlText = utf8.decode(resp.bodyBytes);
+      return _parseRss(xmlText, limit);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 解析 RSS XML → 搜索结果列表。
+  List<Map<String, dynamic>> _parseRss(String xmlText, int limit) {
+    final results = <Map<String, dynamic>>[];
+    try {
+      final doc = XmlDocument.parse(xmlText);
+      final items = doc.findAllElements('item').take(limit);
+      for (final item in items) {
+        final title = item.findElements('title').isEmpty
+            ? ''
+            : item.findElements('title').first.innerText;
+        final link = item.findElements('link').isEmpty
+            ? ''
+            : item.findElements('link').first.innerText;
+        final desc = item.findElements('description').isEmpty
+            ? ''
+            : item.findElements('description').first.innerText;
+        if (title.isNotEmpty && link.isNotEmpty) {
+          results.add({
+            'title': title,
+            'url': link,
+            'description': desc,
+            'position': results.length + 1,
+          });
+        }
+      }
+    } catch (_) {}
+    return results;
+  }
+}
+
+/// 活动搜索后端（默认必应；失败 fallback DDG）。
+WebSearchBackend webSearchBackend = BingBackend();
+WebSearchBackend webSearchFallbackBackend = DuckDuckGoBackend();
 
 /// web_search 工具：返回搜索元数据（URL/标题/描述）。
 ///
-/// 对应 Hermes web_search_tool。用活动后端；DuckDuckGo 免费无 key。
+/// 对应 Hermes web_search_tool。默认必应（中文质量高），失败 fallback DDG。
 Future<String> webSearchTool(String query, {int limit = 5}) async {
   if (limit < 1 || limit > 100) {
     limit = 5;
   }
   try {
-    final results = await webSearchBackend.search(query, limit);
+    var results = await webSearchBackend.search(query, limit);
+    // 必应无结果 → fallback DDG。
+    if (results.isEmpty) {
+      results = await webSearchFallbackBackend.search(query, limit);
+    }
     return jsonEncode({
       'success': true,
       'data': {'web': results},
