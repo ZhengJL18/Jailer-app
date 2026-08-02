@@ -166,10 +166,8 @@ String readFileTool({
       );
     }
 
-    // Hermes 内部路径守卫（读拒绝）。
-    final absPath = _getFileOps().readFileRaw(path).error == null
-        ? _absPath(path)
-        : path;
+    // Hermes 内部路径守卫（读拒绝）。只做路径检查，不读文件（避免大文件双重读）。
+    final absPath = _absPath(path);
     final blockError = getReadBlockError(absPath);
     if (blockError != null) {
       return toolError(blockError);

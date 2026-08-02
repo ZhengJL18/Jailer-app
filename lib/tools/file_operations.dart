@@ -647,6 +647,16 @@ const int defaultSearchLimit = 50;
 const int maxSearchFiles = 10000;
 
 int _coerceInt(Object? value, int default_) {
+  // Python int(x) 语义：int(3.7)→3（截断）、int(True)→1、int("3")→3。
+  if (value is int) {
+    return value;
+  }
+  if (value is double) {
+    return value.toInt();
+  }
+  if (value is bool) {
+    return value ? 1 : 0;
+  }
   final v = int.tryParse(value.toString());
   return v ?? default_;
 }
@@ -974,7 +984,11 @@ class LocalFileOperations implements FileOperations {
     }
 
     final lines = fullContent.split('\n');
-    final totalLines = lines.length;
+    // Python 用 wc -l（按 \n 计数）：尾随换行不产生额外空行。split 在尾随
+    // \n 时产生一个空串元素，去掉它使 total_lines 与 Python 一致。
+    final totalLines = (fullContent.endsWith('\n') && lines.isNotEmpty)
+        ? lines.length - 1
+        : lines.length;
     final page = lines.skip(offsetN - 1).take(limitN).join('\n');
 
     final truncated = totalLines > endLine;
@@ -1553,7 +1567,40 @@ class LocalFileOperations implements FileOperations {
           if (re.hasMatch(line)) {
             fileCount++;
             if (outputMode == 'content') {
-              matches.add(SearchMatch(path: file, lineNumber: i + 1, content: line));
+              // 超长行截断到 500 字符（Python rg 匹配行 [:500]）。
+              final clipped = line.length > 500 ? line.substring(0, 500) : line;
+              matches.add(SearchMatch(
+                path: file,
+                lineNumber: i + 1,
+                content: clipped,
+              ));
+              // context=N：把相邻行也纳入（Python rg -C）。
+              if (context > 0) {
+                for (var c = 1; c <= context; c++) {
+                  final before = i - c;
+                  if (before >= 0) {
+                    final bLine = lines[before];
+                    matches.add(SearchMatch(
+                      path: file,
+                      lineNumber: before + 1,
+                      content: bLine.length > 500
+                          ? bLine.substring(0, 500)
+                          : bLine,
+                    ));
+                  }
+                  final after = i + c;
+                  if (after < lines.length) {
+                    final aLine = lines[after];
+                    matches.add(SearchMatch(
+                      path: file,
+                      lineNumber: after + 1,
+                      content: aLine.length > 500
+                          ? aLine.substring(0, 500)
+                          : aLine,
+                    ));
+                  }
+                }
+              }
             } else if (outputMode == 'files_only') {
               if (!matchedFiles.contains(file)) {
                 matchedFiles.add(file);
@@ -1561,7 +1608,8 @@ class LocalFileOperations implements FileOperations {
             }
           }
         }
-        if (outputMode == 'count') {
+        // count 模式：只有命中的文件才进 counts（Python rg -c）。
+        if (outputMode == 'count' && fileCount > 0) {
           counts[file] = fileCount;
         }
         if (matches.length >= offset + limit + (context > 0 ? 200 : 0)) {

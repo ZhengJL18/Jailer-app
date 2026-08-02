@@ -146,8 +146,11 @@ const Map<String, String> aliases = {
   // deepseek
   'deep-seek': 'deepseek',
 
-  // alibaba
+  // alibaba（dashscope/aliyun/qwen/alibaba-cloud → alibaba）
   'dashscope': 'alibaba',
+  'aliyun': 'alibaba',
+  'qwen': 'alibaba',
+  'alibaba-cloud': 'alibaba',
 };
 
 /// 解析别名并归一化大小写到规范 provider id。

@@ -105,8 +105,12 @@ class _ChatScreenState extends State<ChatScreen> {
       onDelta: (delta) {
         // 流式打字：累积到当前 assistant 消息。
         setState(() {
-          if (_messages.isNotEmpty &&
-              _messages.last.role == 'assistant') {
+          // 若上一条是工具事件，则开新 assistant 消息；否则累积到最后一条。
+          if (_messages.isEmpty ||
+              _messages.last.role == 'user' ||
+              _messages.last.role == 'tool') {
+            _messages.add(_ChatMessage.assistant(delta));
+          } else if (_messages.last.role == 'assistant') {
             final last = _messages.last;
             _messages[_messages.length - 1] = _ChatMessage.assistant(
                 (last.text ?? '') + delta);

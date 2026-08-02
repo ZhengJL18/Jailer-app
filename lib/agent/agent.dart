@@ -144,6 +144,7 @@ class JailerAgent {
           messages.add({
             'role': 'tool',
             'tool_call_id': tc.id,
+            'name': tc.name, // OpenAI 兼容端要求 tool 消息带 name。
             'content': result,
           });
         }

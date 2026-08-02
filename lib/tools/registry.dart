@@ -45,8 +45,28 @@ typedef ToolHandler = FutureOr<dynamic> Function(
 
 /// 顶层可注入的工具错误净化器，对应 Python `model_tools._sanitize_tool_error`
 /// 的函数内懒 import（避免 registry → model_tools 循环依赖）。
-/// `model_tools.dart` 复刻时赋值。
+/// `model_tools.dart` 复刻时赋值；未赋值时用 [defaultSanitizeToolError] 兜底。
 String Function(String)? sanitizeToolError;
+
+/// 内置兜底净化器（对齐 Python _sanitize_tool_error：剥角色标签/fence/CDATA +
+/// 截断 + [TOOL_ERROR] 前缀）。model_tools 库加载后会被更完整的实现替换。
+String defaultSanitizeToolError(String raw) {
+  final roleTagRe = RegExp(
+    r'</?(?:tool_call|function_call|result|response|output|input|system|assistant|user)>',
+    caseSensitive: false,
+  );
+  const maxLen = 2000;
+  var s = raw.replaceAll(roleTagRe, '');
+  s = s.replaceAll(RegExp(r'^\s*```(?:json|xml|html|markdown)?\s*',
+      multiLine: true), '');
+  s = s.replaceAll(RegExp(r'\s*```\s*$', multiLine: true), '');
+  s = s.replaceAll(RegExp(r'<!\[CDATA\[.*?\]\]>', dotAll: true), '');
+  if (s.length > maxLen) {
+    s = '${s.substring(0, maxLen - 3)}...';
+  }
+  return '[TOOL_ERROR] $s';
+}
+
 
 // ---------------------------------------------------------------------------
 // check_fn TTL 缓存
@@ -543,7 +563,9 @@ class ToolRegistry {
       final raw = 'Tool execution failed: ${e.runtimeType}: $e';
       String sanitized;
       try {
-        sanitized = sanitizeToolError != null ? sanitizeToolError!(raw) : raw;
+        // model_tools 库加载/首次 handleFunctionCall 时接线；未接线时用内置
+        // 兜底（剥角色标签 + 截断），保证直接 dispatch 也有净化。
+        sanitized = (sanitizeToolError ?? defaultSanitizeToolError)(raw);
       } catch (_) {
         sanitized = raw; // 防御：绝不让净化器阻塞错误传播
       }

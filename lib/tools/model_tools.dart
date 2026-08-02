@@ -41,13 +41,16 @@ List<Map<String, dynamic>> getToolDefinitions({
 }) {
   // Fast path：memoized 结果（quiet 模式）。缓存键捕获参数级输入；registry
   // generation 捕获 registry 变更。
+  // 键用字符串（join 后值相等），Dart List== 是引用相等，record 键会 100% miss。
   Object? cacheKey;
   if (quietMode) {
-    final en = enabledToolsets != null ? (enabledToolsets.toSet().toList()..sort()) : null;
-    final dis = (disabledToolsets != null && disabledToolsets.isNotEmpty)
-        ? (disabledToolsets.toSet().toList()..sort())
+    final en = enabledToolsets != null
+        ? (enabledToolsets.toSet().toList()..sort()).join(',')
         : null;
-    cacheKey = (en, dis, registry.generation);
+    final dis = (disabledToolsets != null && disabledToolsets.isNotEmpty)
+        ? (disabledToolsets.toSet().toList()..sort()).join(',')
+        : null;
+    cacheKey = '$en|$dis|${registry.generation}';
     final cached = _toolDefsCache[cacheKey];
     if (cached != null) {
       _lastResolvedToolNames = [
@@ -93,9 +96,10 @@ List<Map<String, dynamic>> _computeToolDefinitions(
   if (disabledToolsets != null && disabledToolsets.isNotEmpty) {
     for (final toolsetName in disabledToolsets) {
       if (validateToolset(toolsetName)) {
-        if (toolsetName.startsWith('hermes-')) {
-          // Platform bundles 含 _HERMES_CORE_TOOLS，减整个 bundle 会剥离 core
-          // 工具。只减非 core 差集。
+        final isPosture = getToolset(toolsetName)?.posture == true;
+        if (toolsetName.startsWith('hermes-') || isPosture) {
+          // Platform bundles（hermes-*）与 posture 工具集（如 coding）含
+          // _HERMES_CORE_TOOLS，减整个会剥离 core。只减非 core 差集。
           final toRemove = bundleNonCoreTools(toolsetName);
           toolsToInclude.removeAll(toRemove);
         } else {
@@ -440,6 +444,8 @@ Future<String> handleFunctionCall(
   Map<String, dynamic> functionArgs, {
   ToolCallContext? context,
 }) async {
+  // 惰性接线 sanitizeToolError（幂等；首次调用即生效）。
+  _initToolErrorSanitizer();
   // 强制字符串参数到 schema 声明的类型（如 "42"→42）。
   var args = coerceToolArgs(functionName, functionArgs);
   if (args is! Map<String, dynamic>) {
@@ -453,17 +459,17 @@ Future<String> handleFunctionCall(
   return result is String ? result : jsonEncode(result);
 }
 
-/// 顶层工具错误净化器（registry.dispatch 内懒 import 对应物）。
-/// registry.dart 的 [sanitizeToolError] 在此赋值，避免循环依赖。
-void initToolErrorSanitizer() {
-  sanitizeToolError = (String raw) {
-    // 从异常字符串剥离 framing tokens。
-    var sanitized = raw;
-    final roleTagRe = RegExp(r'\x1b\[[0-9;]*m');
-    sanitized = sanitized.replaceAll(roleTagRe, '');
-    if (sanitized.length > 8000) {
-      sanitized = '${sanitized.substring(0, 7997)}...';
-    }
-    return '[TOOL_ERROR] $sanitized';
-  };
+/// 顶层工具错误净化器（对应 Python `model_tools._sanitize_tool_error`）。
+///
+/// 复用 registry.dart 的 [defaultSanitizeToolError]（同一实现）；这里是主接线点，
+/// 使 model_tools 库被加载后 sanitizeToolError 即为完整实现。
+/// 惰性（幂等）—— 首次 handleFunctionCall 时生效。
+bool _sanitizerWired = false;
+void _initToolErrorSanitizer() {
+  if (_sanitizerWired) {
+    return;
+  }
+  _sanitizerWired = true;
+  sanitizeToolError = defaultSanitizeToolError;
 }
+

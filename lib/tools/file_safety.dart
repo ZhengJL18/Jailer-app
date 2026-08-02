@@ -126,7 +126,9 @@ Set<String> getSafeWriteRoots() {
     return <String>{};
   }
   final roots = <String>{};
-  for (final path in env.split(Platform.pathSeparator)) {
+  // Python os.pathsep：Unix ':' / Windows ';'（列表分隔符，非路径组件分隔符）。
+  final sep = Platform.isWindows ? ';' : ':';
+  for (final path in env.split(sep)) {
     if (path.isNotEmpty) {
       try {
         roots.add(realpath(_expanduser(path)));
@@ -231,7 +233,7 @@ String? getWriteDeniedError(String path, {String verb = 'Write'}) {
   if (denial == 'safe_root') {
     final rootsDisplay = getSafeWriteRoots().toList()..sort();
     return "$verb denied: '$path' is outside HERMES_WRITE_SAFE_ROOT "
-        '(${rootsDisplay.join(Platform.pathSeparator)}). Unset the variable '
+        '(${rootsDisplay.join(Platform.isWindows ? ';' : ':')}). Unset the variable '
         "or add this path's directory prefix.";
   }
   return "$verb denied: '$path' is a protected system/credential file.";
