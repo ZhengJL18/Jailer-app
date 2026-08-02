@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.jailer.jailer"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android 要求 compileSdk 37+。
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
