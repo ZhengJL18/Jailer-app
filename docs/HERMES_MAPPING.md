@@ -1,6 +1,6 @@
-# Hermes master → Dart 复刻映射表
+# Hermes main → Dart 复刻映射表
 
-> **锚定版本**：`NousResearch/hermes-agent` @ `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`（main，2026-08-02 抓取）
+> **锚定版本**：`NousResearch/hermes-agent` @ `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`（**main**，2026-08-02 抓取）
 > **目标**：用 Dart 在 Flutter 隔离墙（Android App 沙盒）内像素级复刻 Hermes 核心 agent 能力。
 > **原则**：Hermes 源码是唯一行为规范，不自创工具系统；手机能用的工具优先复刻，其余留接口或跳过。
 
@@ -20,8 +20,56 @@
 ## 二、核心闭环（P0）— 逐文件深度分析
 
 > 数据来源：子代理 A（根目录核心 + agent 主循环子集）
+> **重要**：仓库默认分支是 `main`（无 `master`），以下全部基于 `main`。另注意 `tools/toolsets.py` 是 `model_tools.py` 关键依赖。
 
-<!-- 待填充 -->
+### 2.1 根目录核心
+
+| 文件 | 规模 | 职责 | 核心类/函数 | 手机可用 | 复刻难度 |
+|---|---|---|---|---|---|
+| run_agent.py | 336KB/7551行 | **薄转发壳**：构造函数转交 init_agent，run_conversation/chat 转交 conversation_loop | AIAgent：interrupt/steer/redirect、_execute_tool_calls（≤1 串行否则批分割）、_interruptible_api_call、_compress_context、_flush_messages_to_session_db、_build_system_prompt | ✅ | 中（~4k 行 Dart，逻辑全在 agent/） |
+| model_tools.py | 65KB | 工具发现+分发 | get_tool_definitions（缓存/toolset 过滤/MCP 刷新）、coerce_tool_args（按 schema 强转）、handle_function_call（coerce→tool_search→middleware→registry）、get_toolset_for_tool | ✅ | 高（3-4k 行 Dart） |
+| hermes_state.py | 383KB | SQLite 会话/消息库 + 压缩 lineage + FTS5 | SessionDB（Schema/Search/Portability 三 Mixin）+ AsyncSessionDB；create_session/append_message/get_messages/replace_messages/archive_and_compact/get_compression_lineage/rewind_to_message/update_token_counts/delete | ⚠️ SQLite 可用，FTS5 trigram/CJK 需编译 | 高 |
+| hermes_state_common.py | 20KB | SCHEMA_VERSION=23 + SCHEMA_SQL（sessions/messages/session_model_usage/state_meta/gateway_routing/compression_locks/async_delegations 表）+ FTS_SQL | messages 列含 role/content/tool_calls/tool_name/reasoning/api_content/active/compacted | ✅ | 中 |
+| hermes_state_schema.py | 45KB | 列级迁移 | SessionSchemaMixin：_init_schema、_reconcile_columns、FTS 触发器重建、SQLite 版本探测 | ✅ | 中 |
+| hermes_state_search.py | 87KB | FTS5 全文搜索 | SessionSearchMixin：search_messages（FTS5+trigram+中文 CJK）、fts_rebuild/optimize、get_anchored_view | ⚠️ trigram/CJK 需编译 | 高 |
+| hermes_constants.py | 57KB | HERMES_HOME 解析、Node 引导、WSL/Termux 探测（is_termux）、reasoning 配置 | 纯常量/工具 | ✅ | 低 |
+| hermes_time.py | 4.5KB | 时区感知 now()：读 HERMES_TIMEZONE env/config.yaml 回退本地 | 纯工具 | ✅ | 低 |
+| batch_runner.py | 57KB | 多进程并行跑 dataset + checkpoint 续跑 | BatchRunner + _process_batch_worker（multiprocessing） | ❌ 手机意义低 | 中 |
+
+### 2.2 agent/ 主循环核心
+
+| 文件 | 规模 | 职责 | 核心机制 | 手机可用 | 复刻难度 |
+|---|---|---|---|---|---|
+| conversation_loop.py | 392KB | **单 turn 主循环（函数式）**，核心 run_conversation ~3900 行 | 压缩门控 → 组装 api_messages+tools → _perform_api_call → 错误重试 → 工具执行回填 → 循环 → turn_finalizer.finalize_turn | ✅ | 极高（**核心**） |
+| agent_init.py | 135KB | init_agent：provider→api_mode 解析、credential_pool、客户端创建（build_anthropic_client/create_openai_client）、fallback_chain、工具加载、MemoryManager、IterationBudget、ContextCompressor | api_mode 按 provider 名/base_url hostname 推断（anthropic/bedrock/codex/gemini/moa/chat_completions） | ✅ | 高 |
+| prompt_builder.py | 105KB | 上下文文件分层发现+截断 | build_environment_hints、build_context_files_prompt（SOUL/HERMES.md/AGENTS.md/CLAUDE.md/.cursorrules）、build_skills_system_prompt | ⚠️ 依赖工作区文件发现 | 中 |
+| system_prompt.py | 30KB | **三层系统提示**：stable+context+volatile，拼接后缓存保 prompt cache | build_system_prompt_parts：stable（身份/SOUL/工具指引）+context（workspace 快照/系统消息）+volatile（memory 快照/时间戳） | ✅ | 中 |
+| context_compressor.py | 326KB | ContextCompressor(ContextEngine)：compress() 保护头+尾 ~20K token，中间 aux LLM 总结；micro-compact 滚动总结 | should_compress/threshold_tokens、工具结果截断、图像剥离、skill 标记保留 | ✅ 需 aux LLM 调用 | 高 |
+| context_engine.py | 21KB | ContextEngine(ABC)：update_from_response/should_compress/compress 抽象 | 复刻低 | ✅ | 低 |
+| memory_manager.py | 48KB | MemoryManager：内置 + 至多 1 外部 provider；prefetch_all/sync_all（后台线程）/handle_tool_call | 内置 store=tools.memory_tool.MemoryStore（文件型 memory/user 目标）；含 StreamingContextScrubber | ✅ | 中 |
+| tool_executor.py | 92KB | 工具执行（并发/串行/分段） | execute_tool_calls_concurrent/sequential/segmented：逐 tool 经 middleware→invoke_tool→结果消息构造→_flush_session_db，含超时/中断 | ✅ | 高 |
+| tool_dispatch_helpers.py | 27KB | _plan_tool_batch_segments（读类并行/副作用串行）、make_tool_result_message、文件变更目标提取 | 复刻中 | ✅ | 中 |
+| message_content.py | 1.3KB | flatten_message_text：多 provider 消息形状→纯文本 | 复刻低 | ✅ | 低 |
+| turn_context.py | 59KB | build_turn_context（每 turn prologue）+ TurnContext 数据类 | stdio 守卫、重试计数重置、消息消毒、系统提示恢复/重建、预压缩检测、外部记忆预取、崩溃恢复持久化 | ✅ | 高 |
+| turn_finalizer.py | 36KB | finalize_turn：预算耗尽→_handle_max_iterations（无工具单次总结）、interrupt/failed 分支、memory review 触发 | 复刻中 | ✅ | 中 |
+| runtime_cwd.py | 3.6KB | resolve_agent_cwd/resolve_context_cwd：TERMINAL_CWD env/_SESSION_CWD contextvar/launch cwd 三选一 | 复刻低 | ✅ | 低 |
+| agent_runtime_helpers.py | 179KB | invoke_tool（middleware→handle_function_call）、create_openai_client、switch_model、try_recover_primary_transport、sanitize_api_messages | ⚠️ boto3/浏览器路径不适用 | ⚠️ | 高 |
+
+### 2.3 主循环数据流（复刻核心依据）
+
+`run_conversation` 一次用户输入：
+
+1. **Prologue** `build_turn_context`：消毒用户消息 → 恢复/构建三层系统提示 → 预压缩检测 → 外部记忆预取 → 崩溃恢复持久化
+2. **主循环**（while 迭代预算 90 次 / iteration_budget 未耗尽）：
+   - 压缩门控：token 超 threshold_tokens（约 context 75%）→ ContextCompressor.compress() 用 aux LLM 总结中间段
+   - 组包：api_messages + get_tool_definitions()（toolset 过滤后的 OpenAI 格式 schema）
+   - LLM 调用：_perform_api_call → relay_llm.execute(_interruptible_api_call) → chat_completion_helpers.interruptible_api_call → OpenAI/Anthropic 客户端
+   - 重试：error_classifier 分类 → retry_utils 退避；413/context-length → 强制压缩后重试
+   - 工具：响应含 tool_calls → _execute_tool_calls → _plan_tool_batch_segments 分割 → execute_tool_calls_concurrent/sequential → invoke_tool → handle_function_call（coerce 参数→registry 分派）→ 结果回填 role=tool → 回循环
+3. **收尾** finalize_turn：无 tool_calls 确定 final_response；预算耗尽→无工具总结请求；触发 memory review；结果持久化到 SessionDB
+4. 返回 {final_response, messages, ...}
+
+关键调用链：`prompt 组装（三层 system_prompt）→ provider 解析（init_agent 定 api_mode/key/base_url）→ LLM 调用 → tool_calls → 工具执行 → 结果回填 → 循环/终止`
 
 ---
 
@@ -178,13 +226,62 @@ discord_tool / feishu_doc / feishu_drive / homeassistant_tool / x_search_tool / 
 
 ## 六、复刻顺序建议
 
-> 待映射表定稿后填充
+> 综合三份子代理数据。Dart 侧目录建议 `lib/jailer/`。
 
-<!-- 待填充 -->
+### P0-A 骨架与协议（先行，打通工具闭环）
+| Dart 模块 | 复刻自 | 内容 |
+|---|---|---|
+| `registry.dart` | tools/registry.py | ToolEntry + register + discover + dispatch（name/toolset/schema/check_fn/handler(args)→JSON/emoji/max_result_size） |
+| `toolsets.dart` | tools/toolsets.py | 工具集分组与别名 |
+| `model_tools.dart` | model_tools.py | get_tool_definitions + coerce_tool_args + handle_function_call |
+| `schema_sanitizer.dart` | tools/schema_sanitizer.py | schema 清洗兼容各家后端 |
+| `file_tools.dart` | tools/file_tools.py + file_operations.py | read_file/write_file/patch + 路径安全引擎 |
+
+### P0-B 会话与存储
+| Dart 模块 | 复刻自 | 内容 |
+|---|---|---|
+| `session_db.dart` | hermes_state.py + common/schema | SQLite 会话/消息库（sqflite），先做核心列 + archive_and_compact，FTS5 后置 |
+| `session_store.dart` | gateway/session.py | SessionStore + ResetPolicy + 动态上下文注入（保留抽象） |
+
+### P0-C 提示词与 LLM 客户端
+| Dart 模块 | 复刻自 | 内容 |
+|---|---|---|
+| `system_prompt.dart` | agent/system_prompt.py | 三层系统提示（stable/context/volatile）+ 缓存 |
+| `llm_client.dart` | agent/agent_runtime_helpers + agent_init | OpenAI 兼容 + Anthropic 两条客户端 + SSE 流式 + tool_calls 聚合 |
+| `provider.dart` | agent_init + plugins/model-providers | Provider ABC + Registry 发现器 + credential_pool（多 key 切换） |
+
+### P0-D 主循环
+| Dart 模块 | 复刻自 | 内容 |
+|---|---|---|
+| `agent.dart` | run_agent.py + conversation_loop.py | run_conversation 主循环（prologue→压缩门控→LLM→重试→工具→循环→finalize） |
+| `tool_executor.dart` | agent/tool_executor.py + tool_dispatch_helpers.py | 读并行/写串行分段执行 |
+| `iteration_budget.dart` | agent/iteration_budget.py | 迭代预算防死循环 |
+| `error_classifier.dart` | agent/error_classifier.py + retry_utils.py | 错误分类→重试/降级/压缩/中止 + jittered backoff |
+
+### P1 增强（P0 闭环跑通后）
+- `context_compressor.dart`（context_compressor.py）：aux LLM 摘要压缩，手机内存更关键
+- `memory_manager.dart`（memory_manager.py）：记忆存储/检索/注入
+- `turn_context.dart` / `turn_finalizer.dart`：回合生命周期
+- `subagent_lifecycle.dart`：进程内子 agent（delegate_task 的基础）
+- `file_safety.dart`：沙盒文件白名单
+- 手机可用工具补齐：memory/todo/kanban/project/session_search/web_tools/vision_analyze
+
+### P2 扩展
+- MCP 客户端（HTTP/SSE）
+- SKILL.md 解析注入 + 技能工具
+- cron（Android 用 WorkManager）
+- prompt_caching / model_metadata（token 估算）
+
+### 不复刻（明确跳过，只留接口）
+- terminal/browser（留 SSH 远端 / CDP override 接口，对接 Termux）
+- 计费/Nous 门户、各平台适配器、desktop UI、display.py、hermes_cli、plugins 内容、skills 内容、moa/learning_graph/trajectory、voice_mode/wake_word、computer_use、code_execution 沙箱
+
+### 里程碑 1 验收（最小闭环）
+手机端跑通：用户输入 → 三层系统提示 → LLM → 调用 `write_file` → 结果回填 → 再调用 `read_file` → 最终回答。全程经过 registry 分发 + SessionDB 持久化 + iteration_budget 护栏，行为与 Hermes 一致。
 
 ---
 
-## 附：Hermes master 模块全景（目录清单，2026-08-02 抓取）
+## 附：Hermes main 模块全景（目录清单，2026-08-02 抓取）
 
 ### 根目录核心文件
 ```
@@ -198,8 +295,8 @@ batch_runner.py  cli.py  mcp_serve.py  mini_swe_runner.py
 主循环核心：`conversation_loop.py (392KB)` `agent_init.py (135KB)` `prompt_builder.py` `system_prompt.py` `context_compressor.py` `context_engine.py` `memory_manager.py (48KB)` `tool_executor.py` `tool_dispatch_helpers.py` `message_content.py` `turn_context.py` `turn_finalizer.py` `runtime_cwd.py` `display.py (55KB)` `moa_loop.py` `iteration_budget.py` `error_classifier.py` `subagent_lifecycle.py`
 其余 ~110 文件：adapter（anthropic/bedrock/codex/gemini/vertex/azure）、billing、context_breakdown/references、credential、delegation、image/tts/video/web_search registry、learning_graph、reasoning、redact、relay、skill_*、ssl、stream、trajectory、usage 等
 
-### tools/（约 100 个文件）
-`registry.py (41KB)` `schema_sanitizer.py` 工具文件含 file_tools/file_operations/web_tools/url_safety/ansi_strip/terminal_tool/browser_*/tts_*/vision_tools/feishu_*/discord_tool/delegate_tool/todo_tool/skills_*/cronjob_tools/computer_use* 等
+### tools/（约 106 个文件）
+`registry.py (41KB)` `schema_sanitizer.py` `toolsets.py`（工具集注册表，model_tools.py 关键依赖）工具文件含 file_tools/file_operations/web_tools/url_safety/ansi_strip/terminal_tool/browser_*/tts_*/vision_tools/feishu_*/discord_tool/delegate_tool/todo_tool/skills_*/cronjob_tools/computer_use* 等
 
 ### gateway/（40+ 文件）
 `platform_registry.py` `platforms/` `session.py` `run.py` `delivery.py` `hooks.py` `mirror.py` `pairing.py` 等
@@ -218,5 +315,6 @@ apple / autonomous-ai-agents / creative / email / github / media / mlops / note-
 
 ---
 
-> 映射表由 3 个并行研究子代理产出原始清单后汇总。
-> **本文件在子代理数据到达后填充完整。**
+> 映射表由 3 个并行研究子代理（2026-08-02）产出原始清单后汇总：A=根目录核心+主循环、B=tools/ 全部、C=外围模块。
+> 数据来源均为真实读取源码（docstring + 文件清单 + 关键文件精读），大文件（conversation_loop 392KB / context_compressor 326KB / gateway/run.py 1.27MB）按结构抓取。
+> **完整。**
