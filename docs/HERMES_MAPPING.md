@@ -101,9 +101,58 @@ discord_tool / feishu_doc / feishu_drive / homeassistant_tool / x_search_tool / 
 
 ## 四、外围模块（不复刻 / 留接口）
 
-> 数据来源：子代理 C（gateway / hermes_cli / plugins / skills / cron / 其余）
+> 数据来源：子代理 C（gateway / hermes_cli / plugins / skills / cron / agent 其余文件）
 
-<!-- 待填充 -->
+### 4.1 各目录判定
+
+| 模块 | 规模 | 职责 | 手机可用 | Dart 复刻判定 |
+|---|---|---|---|---|
+| gateway/ | 54 文件 | 25+ 平台常驻消息网关；session.py 核心会话层 | ⚠️ | **留接口：`session.py` 会话抽象**（SessionStore/ResetPolicy/动态上下文注入、"一次会话一个 agent"）；平台适配器与运维文件无视 |
+| hermes_cli/ | 130+ 文件 | 终端 CLI 命令集；COMMAND_REGISTRY 中央命令表 | ⚠️ | **留接口：`COMMAND_REGISTRY` 单一命令定义表**（"一处定义、多端复用"）；config 简化 |
+| plugins/ | 18 目录 | 可插拔生态（model-providers 30 个/context_engine/memory/browser…） | ⚠️ | **留接口：Provider ABC + Registry 发现器、单 provider 激活模式**；内容跳过 |
+| skills/ | 14 目录 | 纯内容（领域技能 markdown，含 SKILL.md） | ⚠️ | 纯内容，无视；App 复用只须轻量解析 SKILL.md |
+| cron/ | 7 文件 | 定时任务（60s tick + jobs.json） | ❌ | 跳过（Android 用 WorkManager 原生替代） |
+| acp_adapter/ | 11 文件 | ACP JSON-RPC server（IDE 集成） | ⚠️ | 跳过 |
+| mcp_serve.py | 单文件 | MCP stdio server（10 个 MCP 工具暴露会话） | ⚠️ | **留接口**（MCP 通用协议，可后置） |
+| mini_swe_runner.py | — | SWE 基准跑批 | ❌ | 跳过 |
+| hermes_bootstrap.py | — | Windows UTF-8 引导修复 | ❌ | 跳过（平台绑定） |
+| cli.py | — | 老版终端 REPL | ❌ | 跳过 |
+| apps/ | 3 目录 | Electron 桌面 UI + TS 共享库 | ⚠️ | 跳过（前端工程） |
+
+### 4.2 agent/ 其余 ~110 文件（主循环核心之外）判定
+
+**必须复刻**（核心增强，手机更重要）：
+- `context_compressor` / `conversation_compression` — 上下文摘要压缩（手机内存更关键）
+- `tool_dispatch_helpers` / `tool_guardrails` — 工具并行门控、护栏（主循环一部分）
+- `file_safety` — 沙盒内文件白名单
+- `subagent_lifecycle` — 子代理生命周期契约（App 多任务核心）
+- `iteration_budget` — 迭代预算防死循环
+- `error_classifier` — 错误分类→重试/轮换/降级/压缩/中止（弱网更重要）
+- `retry_utils` — jittered backoff
+
+**留接口**：
+- Provider 适配层（anthropic/bedrock/gemini/vertex/azure/codex）：Dart 只实现 anthropic + openai-compatible 两条；schema 翻译思路参考
+- `memory_provider` 抽象、`prompt_caching`（缓存省钱）、`model_metadata`（token 估算）、`credential_pool`（多 key 故障切换）、SKILL.md 加载注入、`tool_result_classification`
+
+**跳过**：
+- billing/计费/Nous 门户绑定、桌面 UI（apps/pet/learning_graph 渲染）、learning_graph/insights/trajectory、display.py（终端渲染，Flutter 自带 UI）、lsp/、monitoring/、moa_loop/moa_trace、reactions/battery/i18n/markdown_tables、verification 系列、browser/image_gen/tts/web_search/video_gen 的 provider+registry（保留模式）
+
+### 4.3 值得保留的核心抽象汇总（Dart 复刻骨架）
+
+1. **会话管理**：gateway/session.py 的 SessionStore + ResetPolicy + 动态上下文注入、"一次会话一个 agent"
+2. **Provider ABC + Registry 发现器**：单 provider 激活（贯穿 plugins 与 agent/*_registry）
+3. **Provider 统一接口 + OpenAI schema 翻译**（anthropic_adapter 思路）
+4. **context_compressor / conversation_compression**：上下文压缩
+5. **error_classifier**：错误分类→恢复动作
+6. **iteration_budget**：防死循环
+7. **subagent_lifecycle**：子代理生命周期
+8. **credential_pool**：多 key 故障切换
+9. **file_safety**：沙盒文件白名单
+10. **tool_dispatch_helpers / tool_guardrails**：工具调度护栏
+11. **COMMAND_REGISTRY**：slash 命令单一定义表
+12. **SKILL.md 解析注入**
+13. **prompt_caching**
+14. **model_metadata**：token 估算
 
 ---
 
