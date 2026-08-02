@@ -642,6 +642,10 @@ const int defaultReadLimit = 500;
 const int defaultSearchOffset = 0;
 const int defaultSearchLimit = 50;
 
+/// 搜索遍历的文件数上限。同步 listSync(recursive) 遍历大目录会卡 UI 主 isolate，
+/// 达到上限即截断并标记 truncated。
+const int maxSearchFiles = 10000;
+
 int _coerceInt(Object? value, int default_) {
   final v = int.tryParse(value.toString());
   return v ?? default_;
@@ -1446,6 +1450,27 @@ class LocalFileOperations implements FileOperations {
     final (offsetN, limitN) = normalizeSearchPagination(offset, limit);
     final absPath = _abs(path);
 
+    // 隔离墙保护：搜索必须限制在 cwd（App documents 目录）内。
+    // Android 上 Directory.current 是 `/`，无 cwd 配置时 listSync(recursive)
+    // 会遍历整个文件系统卡死。
+    final baseCwd = cwd;
+    if (baseCwd == null || baseCwd.isEmpty) {
+      return SearchResult(
+        error: '搜索范围未配置（cwd 为空）。请先初始化 App 文件目录。',
+        totalCount: 0,
+      );
+    }
+    final absCwd = p.isAbsolute(baseCwd)
+        ? p.normalize(baseCwd)
+        : p.normalize(p.join(Directory.current.path, baseCwd));
+    if (absPath != absCwd && !p.isWithin(absCwd, absPath)) {
+      return SearchResult(
+        error: "搜索路径 '$path' 超出沙盒范围（$absCwd）。"
+            'Jailer 只能搜索 App 自己的文件空间。',
+        totalCount: 0,
+      );
+    }
+
     // 验证路径存在。
     if (!Directory(absPath).existsSync() && !File(absPath).existsSync()) {
       return SearchResult(error: 'Path not found: $path', totalCount: 0);
@@ -1460,12 +1485,18 @@ class LocalFileOperations implements FileOperations {
   SearchResult _searchFiles(String pattern, String path, int limit, int offset) {
     final baseName = pattern.split('/').last;
     final files = <String>[];
+    var truncated = false;
     try {
       final root = Directory(path);
       final walk = root.listSync(recursive: true, followLinks: false);
       for (final e in walk) {
         if (e is! File) {
           continue;
+        }
+        // 上限保护：同步遍历大目录会卡 UI 主 isolate。
+        if (files.length >= maxSearchFiles) {
+          truncated = true;
+          break;
         }
         final name = p.basename(e.path);
         if (_globMatch(baseName, name)) {
@@ -1478,6 +1509,7 @@ class LocalFileOperations implements FileOperations {
     return SearchResult(
       files: page,
       totalCount: files.length,
+      truncated: truncated,
     );
   }
 
@@ -1583,6 +1615,9 @@ class LocalFileOperations implements FileOperations {
       final walk = d.listSync(recursive: true, followLinks: false);
       for (final e in walk) {
         if (e is File) {
+          if (files.length >= maxSearchFiles) {
+            break; // 上限保护：防止同步遍历大目录卡 UI。
+          }
           if (_fileGlobMatch(fileGlob, p.basename(e.path))) {
             files.add(e.path);
           }

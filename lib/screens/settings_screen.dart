@@ -17,6 +17,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _modelController = TextEditingController();
   String _vendor = '';
   String _model = '';
   String _apiKey = '';
@@ -27,6 +28,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _modelController.dispose();
+    super.dispose();
+  }
+
+  /// 设置模型并同步输入框显示。
+  void _setModel(String v) {
+    setState(() => _model = v);
+    if (_modelController.text != v) {
+      _modelController.text = v;
+    }
   }
 
   Future<void> _load() async {
@@ -41,6 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _vendor = 'deepseek';
         _model = 'deepseek-chat';
       }
+      _modelController.text = _model;
       _loading = false;
     });
   }
@@ -99,34 +115,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // 切换厂商时自动选默认模型。
                   final m = vendorModels[v];
                   if (m != null && m.isNotEmpty) {
-                    _model = m.first;
+                    _setModel(m.first);
+                  } else {
+                    _setModel('');
                   }
                 });
               },
             ),
             const SizedBox(height: 12),
-            // 模型（可编辑文本 + 预设提示）。
-            Autocomplete<String>(
-              initialValue: TextEditingValue(text: _model),
-              optionsBuilder: (text) {
-                if (text.text.isEmpty) return const Iterable<String>.empty();
-                return models.where(
-                    (m) => m.toLowerCase().contains(text.text.toLowerCase()));
-              },
-              onSelected: (v) => setState(() => _model = v),
-              fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                return TextFormField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  decoration: const InputDecoration(
-                    labelText: '模型',
-                    border: OutlineInputBorder(),
-                    helperText: '可用模型：',
-                  ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? '请输入模型' : null,
-                );
-              },
+            // 模型（可编辑文本，onChanged 同步 _model）。
+            TextFormField(
+              controller: _modelController,
+              decoration: const InputDecoration(
+                labelText: '模型',
+                border: OutlineInputBorder(),
+                helperText: '可用模型：',
+              ),
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? '请输入模型' : null,
+              onChanged: (v) => _model = v.trim(),
             ),
             if (models.isNotEmpty) ...[
               const SizedBox(height: 4),
@@ -137,7 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ChoiceChip(
                       label: Text(m),
                       selected: _model == m,
-                      onSelected: (_) => setState(() => _model = m),
+                      onSelected: (_) => _setModel(m),
                     ),
                 ],
               ),

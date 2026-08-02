@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
 import 'config/jailer_config.dart';
@@ -65,6 +66,17 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     initConfig();
     registerFileTools();
+    _initCwd();
+  }
+
+  /// 把文件工具的 cwd 配置到 App documents 目录（隔离墙边界）。
+  /// 不配置的话 Android 上 Directory.current 是 `/`，search_files 会递归
+  /// 遍历整个文件系统导致卡死。
+  Future<void> _initCwd() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      configureFileTools(cwd: dir.path);
+    } catch (_) {}
   }
 
   Future<void> _send() async {

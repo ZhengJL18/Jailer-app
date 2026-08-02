@@ -207,6 +207,30 @@ void main() {
     });
   });
 
+  group('search 沙盒保护', () {
+    test('cwd 未配置时拒绝搜索（防遍历 / 卡死）', () {
+      final noCwdOps = LocalFileOperations(); // cwd = null
+      final r = noCwdOps.search('anything');
+      expect(r.error, contains('cwd'));
+      expect(r.totalCount, 0);
+    });
+
+    test('越界绝对路径被拒绝', () {
+      // 用临时目录外的一个路径（如系统临时目录的上级）测试。
+      final outside = p.join(tmp.path, '..', 'outside_dir');
+      final r = ops.search('anything', path: outside);
+      expect(r.error, contains('超出沙盒范围'));
+      expect(r.totalCount, 0);
+    });
+
+    test('cwd 内搜索正常', () {
+      File(p.join(tmp.path, 'in.txt')).writeAsStringSync('hello sandbox');
+      final r = ops.search('sandbox');
+      expect(r.error, isNull);
+      expect(r.totalCount, 1);
+    });
+  });
+
   group('parseV4aPatch', () {
     test('CRLF-tolerant line splitting', () {
       final patch = '*** Begin Patch\r\n'
