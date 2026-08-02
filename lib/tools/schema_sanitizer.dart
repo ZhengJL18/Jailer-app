@@ -14,8 +14,6 @@
 /// 深拷贝上就地修复已知敌意结构。刻意保守：只修改 LLM 后端反正不能用的形状。
 library;
 
-import 'dart:convert';
-
 /// Anthropic（及其背后的 Bedrock/Vertex/Azure）拒绝属性键不匹配此模式的工具
 /// 输入 schema。Cloudflare 的 flat API MCP 有 61 个此类键（如
 /// ``issue_class~neq`` 和 ``meta.<field>[<operator>]``）—— tools 数组任意一处
@@ -112,11 +110,23 @@ List<Map<String, dynamic>> sanitizeToolSchemas(List<Map<String, dynamic>> tools)
 }
 
 Map<String, dynamic> _deepCopyMap(Map<String, dynamic> m) {
-  return jsonDecode(jsonEncode(m)) as Map<String, dynamic>;
+  final out = <String, dynamic>{};
+  for (final e in m.entries) {
+    out[e.key] = _deepCopy(e.value);
+  }
+  return out;
 }
 
+/// 递归深拷贝（对应 Python copy.deepcopy）。不用 JSON 往返 —— 值含 NaN/
+/// Infinity/超大 int 时 jsonEncode 会抛，且丢类型。
 dynamic _deepCopy(dynamic v) {
-  return jsonDecode(jsonEncode(v));
+  if (v is Map) {
+    return _deepCopyMap(Map<String, dynamic>.from(v));
+  }
+  if (v is List) {
+    return [for (final item in v) _deepCopy(item)];
+  }
+  return v; // 标量（num/bool/String/null）不可变，直接复用。
 }
 
 /// 深拷贝并净化单个 OpenAI 格式工具条目。

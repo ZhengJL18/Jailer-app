@@ -1015,12 +1015,11 @@ class LocalFileOperations implements FileOperations {
     final ext = p.extension(filename).toLowerCase();
     final lowerName = filename.toLowerCase();
 
-    // 列出目标目录文件。
+    // 列出目标目录条目（Python ls -1 含文件与目录）。
     List<String> dirEntries;
     try {
       dirEntries = Directory(dirPath)
           .listSync()
-          .where((e) => e is File)
           .map((e) => p.basename(e.path))
           .toList()
         ..sort();
@@ -1295,7 +1294,10 @@ class LocalFileOperations implements FileOperations {
 
     if (error != null || matchCount == 0) {
       var errMsg = error ?? 'Could not find match for old_string in $path';
-      errMsg += formatNoMatchHint(error, matchCount, oldString, content);
+      // Python 包 try/except: pass —— hint 计算失败不顶掉主错误。
+      try {
+        errMsg += formatNoMatchHint(error, matchCount, oldString, content);
+      } catch (_) {}
       return PatchResult(error: errMsg);
     }
 

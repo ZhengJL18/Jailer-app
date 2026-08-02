@@ -140,6 +140,7 @@ Map<String, dynamic>? coerceToolArgs(String toolName, Map<String, dynamic>? args
   if (args == null || args.isEmpty) {
     return args;
   }
+  var a = args;
 
   final schema = registry.getSchema(toolName);
   if (schema == null) {
@@ -158,13 +159,18 @@ Map<String, dynamic>? coerceToolArgs(String toolName, Map<String, dynamic>? args
   // 模型看到的是 SANITIZED schema —— 违反 provider 模式的属性键（如
   // Cloudflare 的 ``issue_class~neq``）在请求前被重命名。先把任何净化键映射回
   // registry 原始 wire 名，再查 schema / dispatch。
-  final renamed = unrenameToolArgs(parameters, args);
-  if (renamed is Map<String, dynamic>) {
-    args = renamed;
+  // Python 版包 try/except: pass —— unrename 异常绝不断 dispatch。
+  try {
+    final renamed = unrenameToolArgs(parameters, a);
+    if (renamed is Map<String, dynamic>) {
+      a = renamed;
+    }
+  } catch (_) {
+    // unrename 失败 → 用原始 a。
   }
 
-  for (final key in args.keys.toList()) {
-    final value = args[key];
+  for (final key in a.keys.toList()) {
+    final value = a[key];
     final propSchema = properties[key];
     if (propSchema is! Map<String, dynamic>) {
       continue;
@@ -177,17 +183,17 @@ Map<String, dynamic>? coerceToolArgs(String toolName, Map<String, dynamic>? args
         final coerced = _coerceValue(value, expected, schema: propSchema);
         if (!identical(coerced, value)) {
           // _coerce_value 处理了（JSON 解析列表或可空 "null" → null）。
-          args[key] = coerced;
+          a[key] = coerced;
           continue;
         }
         // 字符串看起来像 JSON 数组但解析失败 —— 警告而非静默包装。
         if (value.trim().startsWith('[')) {
           // logger.warning(...)
         }
-        args[key] = [value];
+        a[key] = [value];
         continue;
       }
-      args[key] = [value];
+      a[key] = [value];
       continue;
     }
 
@@ -195,9 +201,9 @@ Map<String, dynamic>? coerceToolArgs(String toolName, Map<String, dynamic>? args
       // 递归进已原生容器，使 JSON 编码*元素*（数组项）和*子字段*（嵌套对象
       // 属性）也被归一化。
       if (expected == 'array' && value is List) {
-        args[key] = _normalizeJsonStringsForSchema(value, propSchema);
+        a[key] = _normalizeJsonStringsForSchema(value, propSchema);
       } else if (expected == 'object' && value is Map<String, dynamic>) {
-        args[key] = _normalizeJsonStringsForSchema(value, propSchema);
+        a[key] = _normalizeJsonStringsForSchema(value, propSchema);
       }
       continue;
     }
@@ -206,14 +212,14 @@ Map<String, dynamic>? coerceToolArgs(String toolName, Map<String, dynamic>? args
     }
     final coerced = _coerceValue(value, expected, schema: propSchema);
     if (!identical(coerced, value)) {
-      args[key] = coerced;
+      a[key] = coerced;
       if (coerced is List || coerced is Map) {
-        args[key] = _normalizeJsonStringsForSchema(coerced, propSchema);
+        a[key] = _normalizeJsonStringsForSchema(coerced, propSchema);
       }
     }
   }
 
-  return args;
+  return a;
 }
 
 bool _schemaAcceptsKind(dynamic schema, String kind) {
@@ -381,7 +387,9 @@ dynamic _coerceJson(String value, bool Function(dynamic) matches) {
 }
 
 dynamic _coerceNumber(String value, {bool integerOnly = false}) {
-  final f = double.tryParse(value);
+  // Python float() 接受前导/尾随空白和下划线（float(" 42 ")=42, float("1_0")=10）。
+  final cleaned = value.trim().replaceAll('_', '');
+  final f = double.tryParse(cleaned);
   if (f == null) {
     return value;
   }
