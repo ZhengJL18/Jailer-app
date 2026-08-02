@@ -11,6 +11,7 @@ import 'tools/file_tools.dart';
 import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/model_tools.dart';
+import 'tools/todo_tool.dart';
 import 'tools/web_tools.dart';
 
 void main() {
@@ -76,6 +77,7 @@ class _ChatScreenState extends State<ChatScreen> {
     registerFileTools();
     registerMemoryTool();
     registerWebTools();
+    registerTodoTool();
     _initCwd();
   }
 
@@ -120,7 +122,7 @@ class _ChatScreenState extends State<ChatScreen> {
       memoryManager: _memory,
       systemPrompt: _systemPrompt(),
       toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: const ['file', 'web', 'memory'],
+        enabledToolsets: const ['file', 'web', 'memory', 'todo'],
         quietMode: true,
       ),
       onDelta: (delta) {
