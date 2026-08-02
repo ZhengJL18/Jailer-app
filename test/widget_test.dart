@@ -1,30 +1,23 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// 轻量 smoke test —— 不 pump 整个 App（MIX 血泪教训：pump 整个 App 会触发
+// 无限动画卡死 CI）。只测配置模型的纯逻辑。
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:jailer/main.dart';
+import 'package:jailer/config/jailer_config.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('vendor 模型预设非空', () {
+    expect(vendorModels['deepseek'], isNotEmpty);
+    expect(vendorModels['zai'], isNotEmpty);
+    expect(vendorLabels['deepseek'], 'DeepSeek');
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  test('JailerConfig 缺 key 不完整', () {
+    const config = JailerConfig(
+      vendorId: 'deepseek',
+      model: 'deepseek-chat',
+      apiKey: '',
+      baseUrl: '',
+    );
+    expect(config.isComplete, isFalse);
   });
 }

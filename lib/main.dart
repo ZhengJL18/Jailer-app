@@ -1,122 +1,270 @@
 import 'package:flutter/material.dart';
 
+import 'agent/agent.dart';
+import 'config/jailer_config.dart';
+import 'llm/openai_llm.dart';
+import 'screens/settings_screen.dart';
+import 'tools/file_tools.dart';
+import 'tools/model_tools.dart';
+
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const JailerApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class JailerApp extends StatelessWidget {
+  const JailerApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Jailer',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: const ChatScreen(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+/// 单条对话消息。
+class _ChatMessage {
+  final String role; // user / assistant / tool
+  final String? text;
+  final String? toolName;
+  final String? toolStatus;
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  _ChatMessage.user(this.text)
+      : role = 'user',
+        toolName = null,
+        toolStatus = null;
+  _ChatMessage.assistant(this.text)
+      : role = 'assistant',
+        toolName = null,
+        toolStatus = null;
+  _ChatMessage.tool(this.toolName, this.toolStatus)
+      : role = 'tool',
+        text = null;
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key});
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final _controller = TextEditingController();
+  final List<_ChatMessage> _messages = [];
+  bool _running = false;
+
+  @override
+  void initState() {
+    super.initState();
+    initConfig();
+    registerFileTools();
+  }
+
+  Future<void> _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _running) return;
+    _controller.clear();
+
+    final config = await JailerConfig.load();
+    if (config == null) {
+      _addUser(text);
+      _addAssistant('请先在设置中配置 AI（厂商 + 模型 + API Key）。');
+      return;
+    }
+
+    _addUser(text);
+    setState(() => _running = true);
+
+    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    final agent = JailerAgent(
+      llm: llm,
+      systemPrompt: _systemPrompt(),
+      toolDefinitionsProvider: () => getToolDefinitions(
+        enabledToolsets: const ['file'],
+        quietMode: true,
+      ),
+      onDelta: (delta) {
+        // 流式打字：累积到当前 assistant 消息。
+        setState(() {
+          if (_messages.isNotEmpty &&
+              _messages.last.role == 'assistant') {
+            final last = _messages.last;
+            _messages[_messages.length - 1] = _ChatMessage.assistant(
+                (last.text ?? '') + delta);
+          }
+        });
+      },
+      onToolEvent: (name, status) {
+        setState(() {
+          _messages.add(_ChatMessage.tool(name, status));
+        });
+      },
+    );
+
+    try {
+      final result = await agent.runConversation(text);
+      if (result.finalResponse != null &&
+          _messages.last.role == 'assistant' &&
+          _messages.last.text != result.finalResponse) {
+        setState(() {
+          _messages[_messages.length - 1] =
+              _ChatMessage.assistant(result.finalResponse);
+        });
+      }
+    } catch (e) {
+      _addAssistant('出错了：$e');
+    } finally {
+      setState(() => _running = false);
+    }
+  }
+
+  String _systemPrompt() {
+    return '你是 Jailer，一个运行在 Android App 沙盒里的 agent。'
+        '你可以调用工具操作 App 自己的文件空间（read_file / write_file / '
+        'patch / search_files）。用中文回答。';
+  }
+
+  void _addUser(String text) {
+    setState(() => _messages.add(_ChatMessage.user(text)));
+  }
+
+  void _addAssistant(String text) {
+    setState(() => _messages.add(_ChatMessage.assistant(text)));
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text('Jailer'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+            },
+          ),
+        ],
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+      body: Column(
+        children: [
+          Expanded(
+            child: _messages.isEmpty
+                ? const Center(
+                    child: Text('Jailer —— 沙盒内的 agent。\n输入任务试试，'
+                        '比如：在 notes 目录写一首关于安卓的俳句并读给我看'),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(12),
+                    itemCount: _messages.length,
+                    itemBuilder: (context, i) {
+                      final m = _messages[i];
+                      return _buildMessage(m);
+                    },
+                  ),
+          ),
+          if (_running)
+            const LinearProgressIndicator(minHeight: 2),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      decoration: const InputDecoration(
+                        hintText: '输入任务…',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      onSubmitted: (_) => _send(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    icon: const Icon(Icons.send),
+                    onPressed: _running ? null : _send,
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
+          ),
+        ],
       ),
     );
+  }
+
+  Widget _buildMessage(_ChatMessage m) {
+    switch (m.role) {
+      case 'user':
+        return Align(
+          alignment: Alignment.centerRight,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(m.text ?? ''),
+          ),
+        );
+      case 'assistant':
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(m.text ?? ''),
+          ),
+        );
+      case 'tool':
+        // 工具调用卡片。
+        final running = m.toolStatus == 'running';
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border.all(color: Theme.of(context).dividerColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (running)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(Icons.check_circle,
+                    size: 14, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                '🔧 ${m.toolName} ${running ? '运行中…' : '完成'}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
   }
 }
