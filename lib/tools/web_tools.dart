@@ -19,6 +19,8 @@ import 'package:xml/xml.dart';
 
 import 'registry.dart';
 import 'url_safety.dart';
+import 'userscripts.dart' as us;
+import 'webview_extract.dart';
 
 /// 搜索后端接口（可替换：未来接 Firecrawl/Tavily 时实现 provider）。
 abstract class WebSearchBackend {
@@ -189,6 +191,26 @@ Future<String> webSearchTool(String query, {int limit = 5}) async {
 /// 可注入的 http client（测试用；默认全局）。
 http.Client webHttpClient = http.Client();
 
+/// 私域/需渲染平台（用 WebView 无头抓取）。
+const Set<String> _webviewHosts = {
+  'zhihu.com',
+  'xiaohongshu.com',
+  'tieba.baidu.com',
+};
+
+/// 是否需 WebView 抓取。
+bool _needsWebview(String url) {
+  try {
+    final host = Uri.parse(url).host.toLowerCase();
+    for (final h in _webviewHosts) {
+      if (host == h || host.endsWith('.$h')) {
+        return true;
+      }
+    }
+  } catch (_) {}
+  return false;
+}
+
 /// 极简 HTML → 文本提取（去标签/去脚本/去样式）。公开供测试。
 String htmlToText(String html) {
   var text = html;
@@ -282,6 +304,35 @@ Future<String> webExtractTool(
         'content': '',
         'error': 'Blocked: URL targets a private or internal network address',
       });
+      continue;
+    }
+    // 白名单检查（防刷核心）：非白名单域名拒绝。
+    if (!us.isAllowedUrl(url)) {
+      results.add({
+        'url': url,
+        'title': '',
+        'content': '',
+        'error': 'Blocked: domain not in allowlist. Jailer only extracts from approved sites.',
+      });
+      continue;
+    }
+    // 私域/需渲染平台（知乎/小红书/贴吧）→ WebView 抓取（无头后台）。
+    if (_needsWebview(url)) {
+      final wv = await webviewExtract(url, charLimit: charCap);
+      if (wv.success) {
+        results.add({
+          'url': url,
+          'title': wv.title,
+          'content': wv.content,
+        });
+      } else {
+        results.add({
+          'url': url,
+          'title': '',
+          'content': '',
+          'error': wv.error ?? 'WebView extract failed',
+        });
+      }
       continue;
     }
     try {

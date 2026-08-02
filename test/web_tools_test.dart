@@ -76,7 +76,7 @@ void main() {
           headers: {'content-type': 'text/html'},
         );
       });
-      final result = await webExtractTool(['http://example.com'], client: client);
+      final result = await webExtractTool(['https://github.com/example'], client: client);
       final map = jsonDecode(result) as Map;
       final results = map['results'] as List;
       expect(results.length, 1);
