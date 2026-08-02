@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:markdown_widget/markdown_widget.dart';
 import 'package:path_provider/path_provider.dart';
@@ -13,6 +15,7 @@ import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/model_tools.dart';
 import 'tools/session_search_tool.dart';
+import 'tools/skills_tool.dart';
 import 'tools/todo_tool.dart';
 import 'tools/web_tools.dart';
 
@@ -86,6 +89,21 @@ class _ChatScreenState extends State<ChatScreen> {
     _initCwd();
   }
 
+  /// 构建系统提示（含记忆 + skill 索引）。
+  String _systemPrompt() {
+    var prompt = '你是 Jailer，一个运行在 Android App 沙盒里的 agent。'
+        '你可以调用工具操作 App 自己的文件空间（read_file / write_file / '
+        'patch / search_files），管理记忆（memory），上网（web_search / '
+        'web_extract），管理待办（todo），回顾会话（session_search），'
+        '以及使用技能（skills_list / skill_view / skill_manage）。'
+        '用中文回答。';
+    final skillBlock = buildSkillsSystemPrompt();
+    if (skillBlock.isNotEmpty) {
+      prompt = '$prompt\n\n$skillBlock';
+    }
+    return prompt;
+  }
+
   /// 把文件工具的 cwd 配置到 App documents 目录（隔离墙边界）。
   /// 不配置的话 Android 上 Directory.current 是 `/`，search_files 会递归
   /// 遍历整个文件系统导致卡死。
@@ -105,6 +123,10 @@ class _ChatScreenState extends State<ChatScreen> {
       _currentSessionId =
           's${DateTime.now().millisecondsSinceEpoch}';
       await _sessionDb!.createSession(_currentSessionId!, source: 'app');
+      // 初始化 skill 系统（skills/ 在 App documents 下）。
+      final skillsRoot = '${dir.path}/skills';
+      Directory(skillsRoot).createSync(recursive: true);
+      registerSkillTools(skillsRoot: skillsRoot);
     } catch (_) {
       configureFileTools(cwd: null);
     }
@@ -136,7 +158,7 @@ class _ChatScreenState extends State<ChatScreen> {
       sessionId: _currentSessionId,
       systemPrompt: _systemPrompt(),
       toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: const ['file', 'web', 'memory', 'todo'],
+        enabledToolsets: const ['file', 'web', 'memory', 'todo', 'skills'],
         quietMode: true,
       ),
       onDelta: (delta) {
@@ -188,12 +210,6 @@ class _ChatScreenState extends State<ChatScreen> {
     } finally {
       setState(() => _running = false);
     }
-  }
-
-  String _systemPrompt() {
-    return '你是 Jailer，一个运行在 Android App 沙盒里的 agent。'
-        '你可以调用工具操作 App 自己的文件空间（read_file / write_file / '
-        'patch / search_files）。用中文回答。';
   }
 
   void _addUser(String text) {
