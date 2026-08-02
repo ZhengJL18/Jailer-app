@@ -1,0 +1,15 @@
+# Dart / Flutter
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+.metadata
+
+# OS
+Thumbs.db
+Desktop.ini
+
+# Local
+*.apk
