@@ -1,0 +1,348 @@
+/// 对应 `ref/hermes-agent/tools/web_tools.py`（像素级复刻，接口对齐）。
+///
+/// web_search / web_extract 工具。Hermes 用插件后端（Firecrawl/Tavily/Exa/
+/// ddgs）；手机版 App 内置**无 key 的 DuckDuckGo 后端**，用户无需配搜索 key。
+///
+/// ## 返回格式（对齐 Hermes）
+/// - webSearchTool → `{success, data: {web: [{title, url, description, position}]}}`
+/// - webExtractTool → `{results: [{url, title, content, error}]}`
+///
+/// ## 安全
+/// - SSRF 防护（url_safety）：拦截私网/云元数据 URL。
+/// - 敏感查询参数拦截（防 URL 泄露凭据）。
+library;
+
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import 'registry.dart';
+import 'url_safety.dart';
+
+/// 搜索后端接口（可替换：未来接 Firecrawl/Tavily 时实现 provider）。
+abstract class WebSearchBackend {
+  Future<List<Map<String, dynamic>>> search(String query, int limit);
+  bool get requiresKey => false;
+}
+
+/// DuckDuckGo Instant Answer API 后端（免费无 key）。
+class DuckDuckGoBackend implements WebSearchBackend {
+  @override
+  bool get requiresKey => false;
+
+  @override
+  Future<List<Map<String, dynamic>>> search(String query, int limit) async {
+    try {
+      final uri = Uri.parse('https://api.duckduckgo.com/')
+          .replace(queryParameters: {'q': query, 'format': 'json', 'no_html': '1', 'skip_disambig': '1'});
+      final resp = await webHttpClient.get(uri).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) {
+        return const [];
+      }
+      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final results = <Map<String, dynamic>>[];
+      // Abstract（答案）+ RelatedTopics。
+      final abstractText = data['AbstractText'] as String?;
+      if (abstractText != null && abstractText.isNotEmpty) {
+        results.add({
+          'title': data['Heading'] as String? ?? query,
+          'url': data['AbstractURL'] as String? ?? '',
+          'description': abstractText,
+          'position': results.length + 1,
+        });
+      }
+      final related = data['RelatedTopics'];
+      if (related is List) {
+        for (final topic in related) {
+          if (results.length >= limit) break;
+          if (topic is! Map<String, dynamic>) continue;
+          // 嵌套的 Topics（分组）。
+          final nested = topic['Topics'];
+          if (nested is List) {
+            for (final sub in nested) {
+              if (results.length >= limit) break;
+              if (sub is! Map<String, dynamic>) continue;
+              final text = sub['Text'] as String? ?? '';
+              final url = sub['FirstURL'] as String? ?? '';
+              if (text.isNotEmpty && url.isNotEmpty) {
+                results.add({
+                  'title': text.split(' - ').first,
+                  'url': url,
+                  'description': text,
+                  'position': results.length + 1,
+                });
+              }
+            }
+          } else {
+            final text = topic['Text'] as String? ?? '';
+            final url = topic['FirstURL'] as String? ?? '';
+            if (text.isNotEmpty && url.isNotEmpty) {
+              results.add({
+                'title': text.split(' - ').first,
+                'url': url,
+                'description': text,
+                'position': results.length + 1,
+              });
+            }
+          }
+        }
+      }
+      return results;
+    } catch (_) {
+      return const [];
+    }
+  }
+}
+
+/// 活动搜索后端。
+WebSearchBackend webSearchBackend = DuckDuckGoBackend();
+
+/// web_search 工具：返回搜索元数据（URL/标题/描述）。
+///
+/// 对应 Hermes web_search_tool。用活动后端；DuckDuckGo 免费无 key。
+Future<String> webSearchTool(String query, {int limit = 5}) async {
+  if (limit < 1 || limit > 100) {
+    limit = 5;
+  }
+  try {
+    final results = await webSearchBackend.search(query, limit);
+    return jsonEncode({
+      'success': true,
+      'data': {'web': results},
+    });
+  } catch (e) {
+    return toolError('Web search failed: $e', extra: {'success': false});
+  }
+}
+
+/// 可注入的 http client（测试用；默认全局）。
+http.Client webHttpClient = http.Client();
+
+/// 极简 HTML → 文本提取（去标签/去脚本/去样式）。公开供测试。
+String htmlToText(String html) {
+  var text = html;
+  // 去 script/style。
+  text = text.replaceAll(RegExp(r'<script[\s\S]*?</script>', caseSensitive: false), '');
+  text = text.replaceAll(RegExp(r'<style[\s\S]*?</style>', caseSensitive: false), '');
+  // 去注释。
+  text = text.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
+  // 标题。
+  text = text.replaceAllMapped(
+    RegExp(r'<title[^>]*>([\s\S]*?)</title>', caseSensitive: false),
+    (m) => '## ${m.group(1)?.trim() ?? ''}\n\n',
+  );
+  // 块级标签 → 换行。
+  text = text.replaceAll(
+      RegExp(r'</?(?:p|div|br|li|h[1-6]|tr|section|article|blockquote)[^>]*>',
+          caseSensitive: false),
+      '\n');
+  // 链接保留文本（replaceAllMapped 才能用捕获组）。
+  // 用非 raw 双引号字符串 + 双反斜杠转义，避免引号界定冲突。
+  text = text.replaceAllMapped(
+    RegExp("<a[^>]*href=['\"]([^'\"]+)['\"][^>]*>([\\s\\S]*?)</a>",
+        caseSensitive: false),
+    (m) => '[${m.group(2)}](${m.group(1)})',
+  );
+  // 去剩余标签。
+  text = text.replaceAll(RegExp(r'<[^>]+>'), '');
+  // HTML 实体。
+  text = text
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&nbsp;', ' ');
+  // 压缩空白。
+  text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
+  text = text.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+  return text.trim();
+}
+
+/// web_extract 工具：抓取 URL 内容转文本。
+///
+/// 对应 Hermes web_extract_tool。手机版内置 HTTP 抓取 + HTML→text（无 key）。
+/// SSRF 防护 + 敏感参数拦截。char_limit 默认 15000，超长 head+tail 截断。
+Future<String> webExtractTool(
+  List<dynamic> urls, {
+  String? format,
+  int? charLimit,
+  http.Client? client,
+}) async {
+  final httpClient = client ?? webHttpClient;
+  final charCap = charLimit ?? 15000;
+  final results = <Map<String, dynamic>>[];
+  for (var i = 0; i < urls.length; i++) {
+    final item = urls[i];
+    String? url;
+    if (item is String) {
+      url = item;
+    } else if (item is Map<String, dynamic>) {
+      final u = item['url'] ?? item['href'];
+      if (u is String) {
+        url = u;
+      }
+    }
+    if (url == null) {
+      results.add({
+        'url': '',
+        'title': '',
+        'content': '',
+        'error': 'Invalid URL item at index $i: expected a URL string or an object with a string url/href field',
+      });
+      continue;
+    }
+    // 敏感查询参数拦截。
+    final sensitiveKey = sensitiveQueryParamName(url);
+    if (sensitiveKey != null) {
+      results.add({
+        'url': url,
+        'title': '',
+        'content': '',
+        'error': "Blocked: URL contains a credential-like query parameter ($sensitiveKey).",
+      });
+      continue;
+    }
+    // SSRF 防护。
+    if (!await isSafeUrl(url)) {
+      results.add({
+        'url': url,
+        'title': '',
+        'content': '',
+        'error': 'Blocked: URL targets a private or internal network address',
+      });
+      continue;
+    }
+    try {
+      final uri = Uri.parse(url);
+      final resp = await httpClient.get(uri).timeout(const Duration(seconds: 20));
+      if (resp.statusCode != 200) {
+        results.add({
+          'url': url,
+          'title': '',
+          'content': '',
+          'error': 'HTTP ${resp.statusCode}',
+        });
+        continue;
+      }
+      final contentType = resp.headers['content-type'] ?? '';
+      String text;
+      if (contentType.contains('html') || url.contains('.html')) {
+        text = htmlToText(utf8.decode(resp.bodyBytes, allowMalformed: true));
+      } else {
+        text = utf8.decode(resp.bodyBytes, allowMalformed: true).trim();
+      }
+      // char_limit head+tail 截断。
+      var content = text;
+      var truncated = false;
+      if (content.length > charCap) {
+        final head = content.substring(0, charCap ~/ 2);
+        final tail = content.substring(content.length - charCap ~/ 2);
+        content = '$head\n\n... [truncated] ...\n\n$tail';
+        truncated = true;
+      }
+      results.add({
+        'url': url,
+        'title': '',
+        'content': content,
+        if (truncated) 'truncated': true,
+      });
+    } catch (e) {
+      results.add({
+        'url': url,
+        'title': '',
+        'content': '',
+        'error': '$e',
+      });
+    }
+  }
+  return jsonEncode({'results': results});
+}
+
+// =============================================================================
+// Schemas + Registry
+// =============================================================================
+
+const Map<String, dynamic> webSearchSchema = {
+  'name': 'web_search',
+  'description':
+      'Search the web for current information. Returns search result metadata '
+      '(URLs, titles, descriptions). Use web_extract to get full content from '
+      'a specific URL.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'query': {
+        'type': 'string',
+        'description': 'The search query',
+      },
+      'limit': {
+        'type': 'integer',
+        'description': 'Maximum number of results (default 5, max 100)',
+        'default': 5,
+      },
+    },
+    'required': ['query'],
+  },
+};
+
+const Map<String, dynamic> webExtractSchema = {
+  'name': 'web_extract',
+  'description':
+      'Extract readable text content from a specific web page URL. '
+      'Use after web_search to get full page content. Blocked for private '
+      'or internal network addresses.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'urls': {
+        'type': 'array',
+        'description': 'URLs to extract content from',
+        'items': {'type': 'string'},
+      },
+      'format': {
+        'type': 'string',
+        'enum': ['markdown', 'html'],
+        'description': 'Desired output format (optional)',
+      },
+      'char_limit': {
+        'type': 'integer',
+        'description': 'Per-page char budget (default 15000)',
+      },
+    },
+    'required': ['urls'],
+  },
+};
+
+/// 注册 web 工具。
+void registerWebTools() {
+  registry.register(
+    name: 'web_search',
+    toolset: 'web',
+    schema: webSearchSchema,
+    handler: (args, [kwargs]) async {
+      return await webSearchTool(
+        args['query'] as String? ?? '',
+        limit: args['limit'] as int? ?? 5,
+      );
+    },
+    checkFn: () => true,
+    emoji: '🌐',
+  );
+  registry.register(
+    name: 'web_extract',
+    toolset: 'web',
+    schema: webExtractSchema,
+    handler: (args, [kwargs]) async {
+      final rawUrls = args['urls'];
+      final urls = rawUrls is List ? rawUrls : const <dynamic>[];
+      return await webExtractTool(
+        urls,
+        format: args['format'] as String?,
+        charLimit: args['char_limit'] as int?,
+      );
+    },
+    checkFn: () => true,
+    emoji: '📄',
+  );
+}

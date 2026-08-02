@@ -11,6 +11,7 @@ import 'tools/file_tools.dart';
 import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/model_tools.dart';
+import 'tools/web_tools.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,6 +75,7 @@ class _ChatScreenState extends State<ChatScreen> {
     initConfig();
     registerFileTools();
     registerMemoryTool();
+    registerWebTools();
     _initCwd();
   }
 
@@ -118,7 +120,7 @@ class _ChatScreenState extends State<ChatScreen> {
       memoryManager: _memory,
       systemPrompt: _systemPrompt(),
       toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: const ['file'],
+        enabledToolsets: const ['file', 'web', 'memory'],
         quietMode: true,
       ),
       onDelta: (delta) {
