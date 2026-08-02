@@ -13,3 +13,6 @@ Desktop.ini
 
 # Local
 *.apk
+
+# Hermes source reference (像素级复刻的对照基准，不入库)
+ref/
