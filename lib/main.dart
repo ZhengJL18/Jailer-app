@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown_widget/markdown_widget.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
@@ -271,7 +271,7 @@ class _ChatScreenState extends State<ChatScreen> {
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.85,
             ),
-            child: MarkdownBody(
+            child: MarkdownWidget(
               data: m.text ?? '',
               selectable: true,
             ),

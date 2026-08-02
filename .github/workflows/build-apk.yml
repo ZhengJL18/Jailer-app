@@ -31,11 +31,13 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      - name: Build APK (debug)
-        run: flutter build apk --debug
+      # release 构建：用仓库内的 jailer-release.jks 固定签名，
+      # 「所有文件访问」权限（MANAGE_EXTERNAL_STORAGE）需要 release 签名才完整。
+      - name: Build APK (release)
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: jailer-app-debug
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: jailer-app-release
+          path: build/app/outputs/flutter-apk/app-release.apk

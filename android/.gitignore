@@ -12,3 +12,5 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+# Jailer 固定签名 keystore（CI 构建 release 需要，与 MIX 的 mix-release.jks 同策略）。
+!app/jailer-release.jks
