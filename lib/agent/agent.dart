@@ -18,6 +18,7 @@ library;
 
 import 'dart:convert';
 
+import '../db/session_db.dart';
 import '../llm/openai_llm.dart';
 import '../tools/memory_manager.dart';
 import '../tools/model_tools.dart';
@@ -70,6 +71,12 @@ class JailerAgent {
   /// 上下文压缩器（可选）。提供时，超阈值自动压缩。
   final ContextCompressor? contextCompressor;
 
+  /// 会话库（可选）。提供时，消息落库 + 跨重启恢复。
+  final SessionDB? sessionDb;
+
+  /// 会话 id（可选，落库时用）。
+  final String? sessionId;
+
   JailerAgent({
     required this.llm,
     required this.systemPrompt,
@@ -79,6 +86,8 @@ class JailerAgent {
     this.onToolEvent,
     this.memoryManager,
     this.contextCompressor,
+    this.sessionDb,
+    this.sessionId,
   }) : iterationBudget = IterationBudget(maxIterations);
 
   /// 运行一次完整对话（带工具调用直到完成）。
@@ -101,6 +110,18 @@ class JailerAgent {
       ...?conversationHistory,
       {'role': 'user', 'content': userMessage},
     ];
+
+    // ── 会话落库：恢复历史 + 追加当前 user 消息 ──
+    final sdb = sessionDb;
+    final sid = sessionId;
+    if (sdb != null && sid != null) {
+      // 从库恢复历史（若该 session 已有消息）。
+      final stored = await sdb.getMessages(sid);
+      if (stored.isNotEmpty) {
+        messages.insertAll(1, stored);
+      }
+      await sdb.appendMessage(sid, role: 'user', content: userMessage);
+    }
 
     var apiCallCount = 0;
     String? finalResponse;
@@ -156,6 +177,19 @@ class JailerAgent {
       // 把 assistant turn 追加进消息历史。
       messages.add(turn.toAssistantMessage());
 
+      // 落库 assistant 消息。
+      if (sdb != null && sid != null) {
+        final toolCallsJson = turn.toolCalls.isNotEmpty
+            ? jsonEncode([for (final tc in turn.toolCalls) tc.toJson()])
+            : null;
+        await sdb.appendMessage(
+          sid,
+          role: 'assistant',
+          content: turn.content,
+          toolCalls: toolCallsJson,
+        );
+      }
+
       // ── 有 tool_calls → 执行并回填 ──
       if (turn.hasToolCalls) {
         for (final tc in turn.toolCalls) {
@@ -179,6 +213,16 @@ class JailerAgent {
             'name': tc.name, // OpenAI 兼容端要求 tool 消息带 name。
             'content': result,
           });
+          // 落库 tool 消息。
+          if (sdb != null && sid != null) {
+            await sdb.appendMessage(
+              sid,
+              role: 'tool',
+              content: result,
+              toolCallId: tc.id,
+              toolName: tc.name,
+            );
+          }
         }
         continue; // 有工具调用 → 继续循环（模型看到工具结果再决定）
       }

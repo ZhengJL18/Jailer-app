@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
 import 'config/jailer_config.dart';
+import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
@@ -11,6 +12,7 @@ import 'tools/file_tools.dart';
 import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/model_tools.dart';
+import 'tools/session_search_tool.dart';
 import 'tools/todo_tool.dart';
 import 'tools/web_tools.dart';
 
@@ -69,6 +71,8 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, int> _toolRunningIdx = {};
   bool _running = false;
   MemoryManager? _memory;
+  SessionDB? _sessionDb;
+  String? _currentSessionId;
 
   @override
   void initState() {
@@ -78,6 +82,7 @@ class _ChatScreenState extends State<ChatScreen> {
     registerMemoryTool();
     registerWebTools();
     registerTodoTool();
+    registerSessionSearchTool();
     _initCwd();
   }
 
@@ -93,6 +98,13 @@ class _ChatScreenState extends State<ChatScreen> {
       // 初始化记忆存储（MEMORY.md/USER.md 在 App documents/memories 下）。
       registerMemoryTool(baseDir: dir.path);
       _memory = MemoryManager(store: memoryStore!);
+      // 初始化会话库（state.db 在 App documents 下）。
+      _sessionDb = SessionDB(dbPath: '${dir.path}/state.db');
+      await _sessionDb!.init();
+      sessionDb = _sessionDb;
+      _currentSessionId =
+          's${DateTime.now().millisecondsSinceEpoch}';
+      await _sessionDb!.createSession(_currentSessionId!, source: 'app');
     } catch (_) {
       configureFileTools(cwd: null);
     }
@@ -120,6 +132,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final agent = JailerAgent(
       llm: llm,
       memoryManager: _memory,
+      sessionDb: _sessionDb,
+      sessionId: _currentSessionId,
       systemPrompt: _systemPrompt(),
       toolDefinitionsProvider: () => getToolDefinitions(
         enabledToolsets: const ['file', 'web', 'memory', 'todo'],
