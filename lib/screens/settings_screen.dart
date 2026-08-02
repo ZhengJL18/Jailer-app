@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 
 import '../config/jailer_config.dart';
 import '../services/storage_permission.dart';
+import 'history_screen.dart';
+import 'skills_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -291,6 +293,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onPressed: _requestExternalPermission,
                             child: const Text('去授权'),
                           ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 管理入口：对话历史 + 技能。
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.history),
+                    title: const Text('对话历史'),
+                    subtitle: const Text('浏览 / 查看 / 删除历史会话'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.menu_book),
+                    title: const Text('技能管理'),
+                    subtitle: const Text('查看 / 创建 / 删除技能'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SkillsScreen()),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 8),

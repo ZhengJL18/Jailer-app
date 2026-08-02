@@ -274,6 +274,16 @@ class SessionDB {
     );
   }
 
+  /// 删除会话（软删：archived=1，消息保留在库中）。
+  Future<void> deleteSession(String sessionId) async {
+    await db.update(
+      'sessions',
+      {'archived': 1},
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
+
   /// FTS5 全文搜索（含 LIKE 兜底）。
   ///
   /// [roleFilter] 如 'user,assistant'。返回匹配消息（带 session_id）。
