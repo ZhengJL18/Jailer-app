@@ -721,6 +721,9 @@ class LocalFileOperations implements FileOperations {
   /// 工作目录；null 时用当前目录。
   String? cwd;
 
+  /// 公开的路径解析入口（file_tools.dart 报告实际写入路径用）。
+  String resolveForTool(String path) => _abs(path);
+
   /// 返回绝对化后的路径（相对 cwd 解析）。
   String _abs(String path) {
     final expanded = _expandPath(path);
