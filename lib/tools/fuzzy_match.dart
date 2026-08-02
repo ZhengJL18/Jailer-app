@@ -282,7 +282,8 @@ String _reindentReplacement(String fileRegion, String oldString, String newStrin
       outLines.add(fileIndent + remainder);
     } else {
       // 行比 LLM 基础缩进少 —— 例如 new_string 开头 dedent。锚定到文件基础。
-      outLines.add(fileIndent + line.trimLeft());
+      // 只去空格/tab（Python lstrip(" \t")），不去 NBSP/表意空格等 Unicode 空白。
+      outLines.add(fileIndent + line.replaceFirst(RegExp(r'^[ \t]+'), ''));
     }
   }
   return outLines.join('\n');
@@ -361,8 +362,12 @@ String _preserveUnicodeInReplacement(
   }
 
   // Diff norm_old → new_string 找实际编辑。
+  // opcodes 的 i*/j* 索引是码点索引（Python str 索引）——含 emoji 时与
+  // Dart UTF-16 偏移不同，substring 前必须转换。
   final sm = SequenceMatcher(normOld, newString);
   final opcodes = sm.getOpcodes();
+  final fileCpToUtf16 = _buildCodePointToUtf16(fileRegion);
+  final newCpToUtf16 = _buildCodePointToUtf16(newString);
 
   // 对 file_region 应用编辑，未变区间保留 Unicode。
   final resultParts = <String>[];
@@ -374,13 +379,16 @@ String _preserveUnicodeInReplacement(
       while (origEnd < fileRegion.length && fileOrigToNorm[origEnd] < i2) {
         origEnd++;
       }
-      resultParts.add(fileRegion.substring(origStart, origEnd));
+      resultParts.add(fileRegion.substring(
+        fileCpToUtf16[origStart],
+        fileCpToUtf16[origEnd],
+      ));
     } else if (tag == 'replace') {
-      resultParts.add(newString.substring(j1, j2));
+      resultParts.add(newString.substring(newCpToUtf16[j1], newCpToUtf16[j2]));
     } else if (tag == 'delete') {
       // 跳过已删部分。
     } else if (tag == 'insert') {
-      resultParts.add(newString.substring(j1, j2));
+      resultParts.add(newString.substring(newCpToUtf16[j1], newCpToUtf16[j2]));
     }
   }
 
@@ -578,7 +586,25 @@ List<int> _buildOrigToNormMap(String original) {
   return result;
 }
 
+/// 返回 `original` 的码点索引 → UTF-16 偏移映射。
+/// `list[k]` = 第 k 个码点（0-based）在原 UTF-16 串中的 code unit 偏移。
+/// 含 emoji/CJK 扩展 B（代理对）时两者不同；BMP 字符相同。
+List<int> _buildCodePointToUtf16(String original) {
+  final result = <int>[];
+  var utf16 = 0;
+  for (final r in original.runes) {
+    result.add(utf16);
+    utf16 += r > 0xFFFF ? 2 : 1;
+  }
+  result.add(utf16); // 哨兵：串尾 UTF-16 长度
+  return result;
+}
+
 /// 把归一化串中的 (start, end) 位置转换为原始位置。
+///
+/// 返回值是**码点索引**（对齐 Python str 索引）；调用方需经
+/// [_buildCodePointToUtf16] 转 UTF-16 偏移后才能 substring。当前调用方
+/// [_strategyUnicodeNormalized] 返回前已转换。
 List<MatchSpan> _mapPositionsNormToOrig(
   List<int> origToNorm,
   List<MatchSpan> normMatches,
@@ -638,7 +664,13 @@ List<MatchSpan> _strategyUnicodeNormalized(String content, String pattern) {
   }
 
   final origToNorm = _buildOrigToNormMap(content);
-  return _mapPositionsNormToOrig(origToNorm, normMatches);
+  final codePointSpans = _mapPositionsNormToOrig(origToNorm, normMatches);
+  // 码点索引 → UTF-16 偏移（Dart substring 需要）。
+  final cpToUtf16 = _buildCodePointToUtf16(content);
+  return [
+    for (final (s, e) in codePointSpans)
+      (cpToUtf16[s], cpToUtf16[e]),
+  ];
 }
 
 /// 策略 8：按首末行锚定匹配。
@@ -989,7 +1021,11 @@ String findClosestLines(
   final seenRanges = <(int, int)>{};
   for (final (_, lineIdx) in top) {
     final start = lineIdx - contextLines < 0 ? 0 : lineIdx - contextLines;
-    final end = lineIdx + oldLines.length + contextLines;
+    var end = lineIdx + oldLines.length + contextLines;
+    // Python: min(len(content_lines), ...) —— clamp 防越界。
+    if (end > contentLines.length) {
+      end = contentLines.length;
+    }
     final key = (start, end);
     if (seenRanges.contains(key)) {
       continue;

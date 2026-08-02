@@ -75,11 +75,39 @@ const Set<String> _blockedDevicePaths = {
   '/dev/fd/0', '/dev/fd/1', '/dev/fd/2',
 };
 
+/// 阻塞 `/proc/*` 敏感路径（泄漏进程 env/cmdline/内存布局，issue #4427）。
+const List<String> _procSensitiveSuffixes = [
+  '/environ',
+  '/cmdline',
+  '/maps',
+  '/smaps',
+  '/smaps_rollup',
+  '/numa_maps',
+  '/mem',
+  '/auxv',
+  '/pagemap',
+];
+
 bool _isBlockedDevice(String path) {
   final expanded = path.startsWith('~') ? path : path;
   if (expanded.startsWith('/dev')) {
-    // 设备路径用规范名匹配。
     return _blockedDevicePaths.contains(expanded);
+  }
+  // /proc/self/fd/0-2 和 /proc/<pid>/fd/0-2 是 stdio 别名。
+  if (expanded.startsWith('/proc/') &&
+      (expanded.endsWith('/fd/0') ||
+          expanded.endsWith('/fd/1') ||
+          expanded.endsWith('/fd/2'))) {
+    return true;
+  }
+  // /proc/*/environ、/cmdline、/maps 族、/mem、/auxv、/pagemap 可泄漏宿主
+  // 进程秘密、命令行参数和内存布局（ASLR bypass）。
+  if (expanded.startsWith('/proc/')) {
+    for (final suffix in _procSensitiveSuffixes) {
+      if (expanded.endsWith(suffix)) {
+        return true;
+      }
+    }
   }
   return false;
 }
