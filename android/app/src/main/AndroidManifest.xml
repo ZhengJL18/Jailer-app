@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Jailer agent 需要联网调用 LLM API（OpenAI 兼容 SSE 流式）。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="jailer"
         android:name="${applicationName}"
