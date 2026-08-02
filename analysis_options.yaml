@@ -9,6 +9,11 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+# third_party 是第三方插件本地副本（构建依赖），不参与本项目的 lint。
+analyzer:
+  exclude:
+    - third_party/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
