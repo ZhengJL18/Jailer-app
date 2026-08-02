@@ -21,6 +21,7 @@ import 'dart:convert';
 import '../llm/openai_llm.dart';
 import '../tools/memory_manager.dart';
 import '../tools/model_tools.dart';
+import 'context_compressor.dart';
 import 'iteration_budget.dart';
 
 /// agent 主循环的结果。
@@ -66,6 +67,9 @@ class JailerAgent {
   /// 记忆管理器（可选）。提供时，记忆块注入 system prompt。
   final MemoryManager? memoryManager;
 
+  /// 上下文压缩器（可选）。提供时，超阈值自动压缩。
+  final ContextCompressor? contextCompressor;
+
   JailerAgent({
     required this.llm,
     required this.systemPrompt,
@@ -74,6 +78,7 @@ class JailerAgent {
     this.onDelta,
     this.onToolEvent,
     this.memoryManager,
+    this.contextCompressor,
   }) : iterationBudget = IterationBudget(maxIterations);
 
   /// 运行一次完整对话（带工具调用直到完成）。
@@ -107,6 +112,21 @@ class JailerAgent {
       // 消耗迭代预算。
       if (!iterationBudget.consume()) {
         break;
+      }
+
+      // ── 上下文压缩：超阈值时用 LLM 摘要中间段 ──
+      final cc = contextCompressor;
+      if (cc != null) {
+        final currentTokens = estimateMessagesTokens(messages);
+        if (cc.shouldCompress(currentTokens)) {
+          final compressed = await cc.compress(messages);
+          if (compressed.length != messages.length) {
+            // 替换为压缩后消息（保留历史语义）。
+            messages
+              ..clear()
+              ..addAll(compressed);
+          }
+        }
       }
 
       // ── 组包：api_messages + tools ──
