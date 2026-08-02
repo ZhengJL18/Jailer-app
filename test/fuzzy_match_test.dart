@@ -1,4 +1,6 @@
 /// 移植自 `ref/hermes-agent/tests/tools/test_fuzzy_match.py`（像素级复刻验证）。
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jailer/tools/fuzzy_match.dart';
 
