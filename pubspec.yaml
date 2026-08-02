@@ -39,6 +39,8 @@ dependencies:
   path: ^1.9.1
   shared_preferences: ^2.5.5
   sqflite: ^2.4.3
+  flutter_markdown: ^0.7.7+1
+  permission_handler: ^13.0.0
 
 dev_dependencies:
   flutter_test:

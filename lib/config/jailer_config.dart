@@ -3,6 +3,10 @@
 /// 存储 vendor/model/key/baseUrl，经 [providers.dart] 的解析链解析成 LlmConfig。
 library;
 
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../llm/openai_llm.dart';
@@ -63,6 +67,50 @@ class JailerConfig {
       apiKey: apiKey,
       model: model,
     );
+  }
+
+  /// 从 provider 的 `/models` 端点拉取可用模型（OpenAI 兼容）。
+  ///
+  /// baseUrl 如 `.../v1/chat/completions` → 派生 `.../v1/models`。
+  /// 失败返回 null（调用方 fallback 到预设列表）。
+  Future<List<String>?> fetchModels() async {
+    final llm = toLlmConfig();
+    final uri = Uri.parse(llm.baseUrl);
+    // 把 /chat/completions 换成 /models。
+    final segments = uri.pathSegments.toList();
+    if (segments.isNotEmpty && segments.last == 'chat/completions') {
+      segments.removeLast();
+    }
+    segments.add('models');
+    final modelsUri = uri.replace(pathSegments: segments);
+
+    try {
+      final resp = await http.get(
+        modelsUri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${llm.apiKey}',
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) {
+        return null;
+      }
+      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final list = data['data'];
+      if (list is! List) {
+        return null;
+      }
+      final models = <String>[];
+      for (final item in list) {
+        if (item is Map<String, dynamic> && item['id'] is String) {
+          models.add(item['id'] as String);
+        }
+      }
+      models.sort();
+      return models.isEmpty ? null : models;
+    } catch (_) {
+      return null;
+    }
   }
 }
 

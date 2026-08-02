@@ -730,10 +730,14 @@ SearchResult _maybeWarnLineOrientedNewlinePattern(SearchResult result, String pa
 
 /// 通过 dart:io 直接操作的文件操作实现（对应 ShellFileOperations，传输层替换）。
 class LocalFileOperations implements FileOperations {
-  LocalFileOperations({this.cwd});
+  LocalFileOperations({this.cwd, this.allowExternalAccess = false});
 
   /// 工作目录；null 时用当前目录。
   String? cwd;
+
+  /// 是否允许访问 App 沙盒之外的路径（对应 Android「所有文件访问」权限）。
+  /// 为 true 时 search 不再限制在 cwd 内，可搜索公共目录。
+  bool allowExternalAccess;
 
   /// 公开的路径解析入口（file_tools.dart 报告实际写入路径用）。
   String resolveForTool(String path) => _abs(path);
@@ -1466,9 +1470,9 @@ class LocalFileOperations implements FileOperations {
     final (offsetN, limitN) = normalizeSearchPagination(offset, limit);
     final absPath = _abs(path);
 
-    // 隔离墙保护：搜索必须限制在 cwd（App documents 目录）内。
-    // Android 上 Directory.current 是 `/`，无 cwd 配置时 listSync(recursive)
-    // 会遍历整个文件系统卡死。
+    // 隔离墙保护：默认搜索限制在 cwd（App documents 目录）内，防遍历整个
+    // 文件系统卡死。授予「所有文件访问」权限后（allowExternalAccess），
+    // 允许搜索公共目录；但 cwd 为空时仍拒绝（防 Directory.current = `/` 递归）。
     final baseCwd = cwd;
     if (baseCwd == null || baseCwd.isEmpty) {
       return SearchResult(
@@ -1476,15 +1480,18 @@ class LocalFileOperations implements FileOperations {
         totalCount: 0,
       );
     }
-    final absCwd = p.isAbsolute(baseCwd)
-        ? p.normalize(baseCwd)
-        : p.normalize(p.join(Directory.current.path, baseCwd));
-    if (absPath != absCwd && !p.isWithin(absCwd, absPath)) {
-      return SearchResult(
-        error: "搜索路径 '$path' 超出沙盒范围（$absCwd）。"
-            'Jailer 只能搜索 App 自己的文件空间。',
-        totalCount: 0,
-      );
+    if (!allowExternalAccess) {
+      final absCwd = p.isAbsolute(baseCwd)
+          ? p.normalize(baseCwd)
+          : p.normalize(p.join(Directory.current.path, baseCwd));
+      if (absPath != absCwd && !p.isWithin(absCwd, absPath)) {
+        return SearchResult(
+          error: "搜索路径 '$path' 超出沙盒范围（$absCwd）。"
+              'Jailer 默认只搜索 App 自己的文件空间。'
+              '如需访问公共目录，请在设置中授予「所有文件访问」权限。',
+          totalCount: 0,
+        );
+      }
     }
 
     // 验证路径存在。

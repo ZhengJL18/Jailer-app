@@ -26,10 +26,14 @@ LocalFileOperations _getFileOps() {
   return _fileOps ??= LocalFileOperations();
 }
 
-/// 供测试/外部注入 cwd。
-void configureFileTools({String? cwd}) {
-  _fileOps = LocalFileOperations(cwd: cwd);
+/// 供测试/外部注入 cwd 与外部访问开关。
+void configureFileTools({String? cwd, bool allowExternal = false}) {
+  _fileOps = LocalFileOperations(cwd: cwd, allowExternalAccess: allowExternal);
 }
+
+/// 读取当前外部访问开关（main.dart 启动时按权限设置）。
+bool get fileToolsAllowExternal =>
+    _fileOps?.allowExternalAccess ?? false;
 
 /// 读文件大小守卫上限（字符）。
 const int _defaultMaxReadChars = 100000;

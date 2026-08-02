@@ -1,6 +1,11 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Jailer agent 需要联网调用 LLM API（OpenAI 兼容 SSE 流式）。 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 「所有文件访问」：用户授权后 agent 可读写公共目录（Download/Documents）。
+         需在设置页引导用户到系统设置里手动授予（Android 11+ 需 MANAGE_EXTERNAL_STORAGE）。 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage"/>
     <application
         android:label="jailer"
         android:name="${applicationName}"

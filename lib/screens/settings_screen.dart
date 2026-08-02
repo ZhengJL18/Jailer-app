@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../config/jailer_config.dart';
+import '../services/storage_permission.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -23,6 +24,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _apiKey = '';
   String _baseUrl = '';
   bool _loading = true;
+  // 从 /models 拉取的动态模型列表；null = 未拉取/失败。
+  List<String>? _fetchedModels;
+  bool _fetchingModels = false;
+  String? _modelFetchError;
+  // 所有文件访问权限状态。
+  bool _externalGranted = false;
+  bool _checkingExternal = true;
 
   @override
   void initState() {
@@ -44,6 +52,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// 从 provider 的 /models 端点刷新模型列表。
+  Future<void> _refreshModels() async {
+    if (_fetchingModels) return;
+    final config = JailerConfig(
+      vendorId: _vendor,
+      model: _model,
+      apiKey: _apiKey.trim(),
+      baseUrl: _baseUrl.trim(),
+    );
+    setState(() {
+      _fetchingModels = true;
+      _modelFetchError = null;
+    });
+    final models = await config.fetchModels();
+    if (!mounted) return;
+    setState(() {
+      _fetchingModels = false;
+      if (models != null && models.isNotEmpty) {
+        _fetchedModels = models;
+        // 若当前模型不在新列表且预设列表也没有，自动选第一个。
+        if (!models.contains(_model) &&
+            !(vendorModels[_vendor]?.contains(_model) ?? false)) {
+          _setModel(models.first);
+        }
+      } else {
+        _modelFetchError = '拉取失败（检查 API Key 或网络）';
+      }
+    });
+  }
+
   Future<void> _load() async {
     final config = await JailerConfig.load();
     setState(() {
@@ -59,6 +97,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _modelController.text = _model;
       _loading = false;
     });
+    _checkExternalPermission();
+  }
+
+  /// 检测「所有文件访问」权限并同步开关。
+  Future<void> _checkExternalPermission() async {
+    final granted = await isExternalStorageGranted();
+    if (!mounted) return;
+    setState(() {
+      _externalGranted = granted;
+      _checkingExternal = false;
+    });
+  }
+
+  /// 打开系统设置页授予「所有文件访问」，返回后重新检测。
+  Future<void> _requestExternalPermission() async {
+    await openManageExternalStorageSettings();
+    await _checkExternalPermission();
+    // 同步 file_tools 外部访问开关。
+    await syncExternalAccessPermission();
   }
 
   Future<void> _save() async {
@@ -112,7 +169,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (v == null) return;
                 setState(() {
                   _vendor = v;
-                  // 切换厂商时自动选默认模型。
+                  // 切换厂商时自动选默认模型，清空已拉取的模型列表。
+                  _fetchedModels = null;
+                  _modelFetchError = null;
                   final m = vendorModels[v];
                   if (m != null && m.isNotEmpty) {
                     _setModel(m.first);
@@ -129,18 +188,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
               decoration: const InputDecoration(
                 labelText: '模型',
                 border: OutlineInputBorder(),
-                helperText: '可用模型：',
+                helperText: '可用模型（预设）',
               ),
               validator: (v) =>
                   (v == null || v.trim().isEmpty) ? '请输入模型' : null,
               onChanged: (v) => _model = v.trim(),
             ),
-            if (models.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _fetchedModels != null
+                        ? '已刷新 ${_fetchedModels!.length} 个模型'
+                        : (_modelFetchError ?? ''),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                TextButton.icon(
+                  icon: _fetchingModels
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh, size: 16),
+                  label: Text(_fetchingModels ? '刷新中…' : '刷新模型'),
+                  onPressed: _fetchingModels ? null : _refreshModels,
+                ),
+              ],
+            ),
+            // 显示模型 chips：刷新后的动态列表优先，否则预设列表。
+            if ((_fetchedModels ?? models).isNotEmpty) ...[
               const SizedBox(height: 4),
               Wrap(
                 spacing: 4,
                 children: [
-                  for (final m in models)
+                  for (final m in (_fetchedModels ?? models))
                     ChoiceChip(
                       label: Text(m),
                       selected: _model == m,
@@ -174,6 +258,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (v) => _baseUrl = v,
             ),
             const SizedBox(height: 24),
+            // 「所有文件访问」权限（agent 读写公共目录 Download/Documents）。
+            Card(
+              child: ListTile(
+                leading: _checkingExternal
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _externalGranted
+                            ? Icons.verified_user
+                            : Icons.folder_open,
+                        color: _externalGranted
+                            ? Colors.green
+                            : Theme.of(context).colorScheme.primary,
+                      ),
+                title: const Text('所有文件访问权限'),
+                subtitle: Text(
+                  _checkingExternal
+                      ? '检查中…'
+                      : _externalGranted
+                          ? '已授予 —— agent 可读写公共目录（Download/Documents）'
+                          : '未授予 —— agent 只能访问 App 自己的文件空间',
+                ),
+                trailing: _checkingExternal
+                    ? null
+                    : _externalGranted
+                        ? const Icon(Icons.check, color: Colors.green)
+                        : TextButton(
+                            onPressed: _requestExternalPermission,
+                            child: const Text('去授权'),
+                          ),
+              ),
+            ),
+            const SizedBox(height: 8),
             FilledButton(
               onPressed: _save,
               child: const Text('保存'),

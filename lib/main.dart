@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
 import 'config/jailer_config.dart';
 import 'llm/openai_llm.dart';
 import 'screens/settings_screen.dart';
+import 'services/storage_permission.dart';
 import 'tools/file_tools.dart';
 import 'tools/model_tools.dart';
 
@@ -59,6 +61,8 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
   final List<_ChatMessage> _messages = [];
+  // 工具名 → 当前 running 卡片的消息索引（done 时更新而非新增）。
+  final Map<String, int> _toolRunningIdx = {};
   bool _running = false;
 
   @override
@@ -72,11 +76,15 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 把文件工具的 cwd 配置到 App documents 目录（隔离墙边界）。
   /// 不配置的话 Android 上 Directory.current 是 `/`，search_files 会递归
   /// 遍历整个文件系统导致卡死。
+  /// 同时按「所有文件访问」权限决定是否允许访问公共目录。
   Future<void> _initCwd() async {
     try {
       final dir = await getApplicationDocumentsDirectory();
-      configureFileTools(cwd: dir.path);
-    } catch (_) {}
+      rememberFileToolsCwd(dir.path);
+      await syncExternalAccessPermission();
+    } catch (_) {
+      configureFileTools(cwd: null);
+    }
   }
 
   Future<void> _send() async {
@@ -92,7 +100,10 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     _addUser(text);
-    setState(() => _running = true);
+    setState(() {
+      _running = true;
+      _toolRunningIdx.clear();
+    });
 
     final llm = OpenAiLlmClient(config: config.toLlmConfig());
     final agent = JailerAgent(
@@ -119,7 +130,19 @@ class _ChatScreenState extends State<ChatScreen> {
       },
       onToolEvent: (name, status) {
         setState(() {
-          _messages.add(_ChatMessage.tool(name, status));
+          if (status == 'running') {
+            // 新增 running 卡片，记录索引。
+            _toolRunningIdx[name] = _messages.length;
+            _messages.add(_ChatMessage.tool(name, status));
+          } else {
+            // 找到对应 running 卡片更新为 done；找不到则新增。
+            final idx = _toolRunningIdx.remove(name);
+            if (idx != null && idx < _messages.length) {
+              _messages[idx] = _ChatMessage.tool(name, status);
+            } else {
+              _messages.add(_ChatMessage.tool(name, status));
+            }
+          }
         });
       },
     );
@@ -245,7 +268,13 @@ class _ChatScreenState extends State<ChatScreen> {
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Text(m.text ?? ''),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.85,
+            ),
+            child: MarkdownBody(
+              data: m.text ?? '',
+              selectable: true,
+            ),
           ),
         );
       case 'tool':
