@@ -8,6 +8,8 @@ import 'llm/openai_llm.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
 import 'tools/file_tools.dart';
+import 'tools/memory_manager.dart';
+import 'tools/memory_tool.dart';
 import 'tools/model_tools.dart';
 
 void main() {
@@ -64,12 +66,14 @@ class _ChatScreenState extends State<ChatScreen> {
   // 工具名 → 当前 running 卡片的消息索引（done 时更新而非新增）。
   final Map<String, int> _toolRunningIdx = {};
   bool _running = false;
+  MemoryManager? _memory;
 
   @override
   void initState() {
     super.initState();
     initConfig();
     registerFileTools();
+    registerMemoryTool();
     _initCwd();
   }
 
@@ -82,6 +86,9 @@ class _ChatScreenState extends State<ChatScreen> {
       final dir = await getApplicationDocumentsDirectory();
       rememberFileToolsCwd(dir.path);
       await syncExternalAccessPermission();
+      // 初始化记忆存储（MEMORY.md/USER.md 在 App documents/memories 下）。
+      registerMemoryTool(baseDir: dir.path);
+      _memory = MemoryManager(store: memoryStore!);
     } catch (_) {
       configureFileTools(cwd: null);
     }
@@ -108,6 +115,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final llm = OpenAiLlmClient(config: config.toLlmConfig());
     final agent = JailerAgent(
       llm: llm,
+      memoryManager: _memory,
       systemPrompt: _systemPrompt(),
       toolDefinitionsProvider: () => getToolDefinitions(
         enabledToolsets: const ['file'],

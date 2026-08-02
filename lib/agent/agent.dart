@@ -19,6 +19,7 @@ library;
 import 'dart:convert';
 
 import '../llm/openai_llm.dart';
+import '../tools/memory_manager.dart';
 import '../tools/model_tools.dart';
 import 'iteration_budget.dart';
 
@@ -62,6 +63,9 @@ class JailerAgent {
   /// 工具调用事件回调（UI 显示工具执行）。
   final void Function(String name, String status)? onToolEvent;
 
+  /// 记忆管理器（可选）。提供时，记忆块注入 system prompt。
+  final MemoryManager? memoryManager;
+
   JailerAgent({
     required this.llm,
     required this.systemPrompt,
@@ -69,6 +73,7 @@ class JailerAgent {
     this.maxIterations = 500,
     this.onDelta,
     this.onToolEvent,
+    this.memoryManager,
   }) : iterationBudget = IterationBudget(maxIterations);
 
   /// 运行一次完整对话（带工具调用直到完成）。
@@ -79,8 +84,15 @@ class JailerAgent {
     List<Map<String, dynamic>>? conversationHistory,
   }) async {
     // ── Prologue：组装 messages ──
+    // 有记忆管理器时，把冻结快照拼进 system prompt（Hermes 记忆注入）。
+    memoryManager?.onTurnStart();
+    var effectiveSystem = systemPrompt;
+    final memoryBlock = memoryManager?.prefetchAll(userMessage) ?? '';
+    if (memoryBlock.isNotEmpty) {
+      effectiveSystem = '$effectiveSystem\n\n$memoryBlock';
+    }
     final messages = <Map<String, dynamic>>[
-      {'role': 'system', 'content': systemPrompt},
+      {'role': 'system', 'content': effectiveSystem},
       ...?conversationHistory,
       {'role': 'user', 'content': userMessage},
     ];
