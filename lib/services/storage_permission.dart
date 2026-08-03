@@ -61,7 +61,10 @@ Future<void> openManageExternalStorageSettings() async {
 
 /// 根据权限状态刷新 file_tools 的外部访问开关。
 /// 应在 App 启动（_initCwd 之后）和设置页授予后调用。
-Future<void> syncExternalAccessPermission() async {
+///
+/// [fallbackCwd]：权限检测失败时兜底使用的 cwd（App documents），
+/// 防止 _currentCwd 为空导致 file_tools 无 cwd（search_files 会从 `/` 遍历卡死）。
+Future<void> syncExternalAccessPermission({String? fallbackCwd}) async {
   var granted = false;
   try {
     granted = await isExternalStorageGranted();
@@ -70,7 +73,7 @@ Future<void> syncExternalAccessPermission() async {
   }
   // 保持 cwd（documents 目录）不变，仅切换外部访问开关。
   configureFileTools(
-    cwd: _currentCwd,
+    cwd: _currentCwd ?? fallbackCwd,
     allowExternal: granted,
   );
 }

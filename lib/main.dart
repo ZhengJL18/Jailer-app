@@ -121,7 +121,7 @@ class _ChatScreenState extends State<ChatScreen> {
     rememberFileToolsCwd(dir);
     try {
       // 按「所有文件访问」权限设置 file_tools：cwd = documents + 外部访问开关。
-      await syncExternalAccessPermission();
+      await syncExternalAccessPermission(fallbackCwd: dir);
     } catch (_) {}
     // 记忆存储。
     try {
