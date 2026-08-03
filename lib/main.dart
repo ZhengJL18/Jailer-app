@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:markdown_widget/markdown_widget.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
@@ -147,12 +147,10 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _send() async {
     final text = _controller.text.trim();
-    debugPrint('[Jailer] _send 进入, text="$text", _running=$_running');
     if (text.isEmpty || _running) return;
     _controller.clear();
 
     final config = await JailerConfig.load();
-    debugPrint('[Jailer] config load 完成: ${config != null}');
     if (config == null) {
       _addUser(text);
       _addAssistant('请先在设置中配置 AI（厂商 + 模型 + API Key）。');
@@ -164,7 +162,6 @@ class _ChatScreenState extends State<ChatScreen> {
       _running = true;
       _toolRunningIdx.clear();
     });
-    debugPrint('[Jailer] _running 已置 true, 开始构造 agent');
 
     final llm = OpenAiLlmClient(config: config.toLlmConfig());
     // 上下文压缩：超阈值时用主 LLM 摘要中间段（手机内存刚需）。
@@ -184,7 +181,6 @@ class _ChatScreenState extends State<ChatScreen> {
         return summaryTurn.content ?? '';
       },
     );
-    debugPrint('[Jailer] 构造 agent 前');
     final agent = JailerAgent(
       llm: llm,
       memoryManager: _memory,
@@ -204,7 +200,6 @@ class _ChatScreenState extends State<ChatScreen> {
         quietMode: true,
       ),
       onDelta: (delta) {
-        debugPrint('[UI] onDelta len=${delta.length} msgCount=${_messages.length} lastRole=${_messages.isEmpty ? "none" : _messages.last.role}');
         setState(() {
           // 若上一条是工具事件，则开新 assistant 消息；否则累积到最后一条。
           if (_messages.isEmpty ||
@@ -219,7 +214,6 @@ class _ChatScreenState extends State<ChatScreen> {
         });
       },
       onToolEvent: (name, status) {
-        debugPrint('[UI] onToolEvent $name $status msgCount=${_messages.length}');
         setState(() {
           if (status == 'running') {
             // 新增 running 卡片，记录索引。
@@ -239,9 +233,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     try {
-      debugPrint('[Jailer] 开始 runConversation');
       final result = await agent.runConversation(text);
-      debugPrint('[Jailer] runConversation 返回 completed=${result.completed} final=${result.finalResponse} msgCount=${_messages.length} lastRole=${_messages.isEmpty ? "none" : _messages.last.role}');
       // 只在完成时用 finalResponse 覆盖流式内容；预算耗尽/失败（completed=false）
       // 时保留已流式的半截回答，不覆盖为用户看不到的错误文案。
       if (result.completed &&
@@ -249,7 +241,6 @@ class _ChatScreenState extends State<ChatScreen> {
           _messages.isNotEmpty &&
           _messages.last.role == 'assistant' &&
           _messages.last.text != result.finalResponse) {
-        debugPrint('[UI] 覆盖 assistant 消息为 finalResponse');
         setState(() {
           _messages[_messages.length - 1] =
               _ChatMessage.assistant(result.finalResponse);
@@ -258,8 +249,7 @@ class _ChatScreenState extends State<ChatScreen> {
         // 预算耗尽：保留流式内容，追加提示。
         _addAssistant(result.finalResponse!);
       }
-    } catch (e, st) {
-      debugPrint('[Jailer] runConversation 异常: $e\n$st');
+    } catch (e) {
       _addAssistant('出错了：$e');
     } finally {
       setState(() => _running = false);
@@ -367,7 +357,7 @@ class _ChatScreenState extends State<ChatScreen> {
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.85,
             ),
-            child: MarkdownWidget(
+            child: MarkdownBody(
               data: m.text ?? '',
               selectable: true,
             ),

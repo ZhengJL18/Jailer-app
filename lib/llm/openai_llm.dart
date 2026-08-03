@@ -16,7 +16,6 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 /// 单次工具调用（OpenAI wire 格式聚合后）。
@@ -131,20 +130,16 @@ class OpenAiLlmClient {
       // 建连+响应头超时：鸿蒙 QoE/弱网下请求可能无限挂起（App 无任何输出）。
       // 挂起比报错更糟 —— 用户看到「无回应」而非「出错了」。30s 足够正常
       // 流式响应，超时抛 LlmException 走 agent 重试。
-      debugPrint('[LLM] POST ${config.baseUrl} 发出');
       response = await _client
           .send(request)
           .timeout(const Duration(seconds: 30));
-      debugPrint('[LLM] 响应头 ${response.statusCode}');
     } catch (e) {
       // 网络错误（SocketException/ClientException/TimeoutException）统一包成
       // LlmException，让调用方（agent 主循环）能捕获并重试。
-      debugPrint('[LLM] 网络错误/超时: $e');
       throw LlmException('LLM network error: $e');
     }
     if (response.statusCode != 200) {
       final errBody = await response.stream.bytesToString();
-      debugPrint('[LLM] 非200: ${response.statusCode} $errBody');
       throw LlmException(
         'LLM request failed: ${response.statusCode} $errBody',
         statusCode: response.statusCode,

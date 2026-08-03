@@ -184,13 +184,11 @@ class JailerAgent {
       var lastError = '';
       while (true) {
         try {
-          debugPrint('[Agent] 调用 chatStream (attempt $attempt, msg=${messages.length}, tools=${tools.length})');
           final result = await llm.chatStream(
             messages: messages,
             tools: tools,
             onDelta: onDelta,
           );
-          debugPrint('[Agent] chatStream 返回: content="${result.content?.substring(0, (result.content?.length ?? 0).clamp(0, 50))}" tools=${result.toolCalls.length}');
           turn = result;
           break;
         } catch (e) {
