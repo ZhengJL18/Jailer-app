@@ -147,10 +147,12 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _send() async {
     final text = _controller.text.trim();
+    debugPrint('[Jailer] _send 进入, text="$text", _running=$_running');
     if (text.isEmpty || _running) return;
     _controller.clear();
 
     final config = await JailerConfig.load();
+    debugPrint('[Jailer] config load 完成: ${config != null}');
     if (config == null) {
       _addUser(text);
       _addAssistant('请先在设置中配置 AI（厂商 + 模型 + API Key）。');
@@ -162,6 +164,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _running = true;
       _toolRunningIdx.clear();
     });
+    debugPrint('[Jailer] _running 已置 true, 开始构造 agent');
 
     final llm = OpenAiLlmClient(config: config.toLlmConfig());
     // 上下文压缩：超阈值时用主 LLM 摘要中间段（手机内存刚需）。
@@ -181,6 +184,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return summaryTurn.content ?? '';
       },
     );
+    debugPrint('[Jailer] 构造 agent 前');
     final agent = JailerAgent(
       llm: llm,
       memoryManager: _memory,
@@ -234,7 +238,9 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     try {
+      debugPrint('[Jailer] 开始 runConversation');
       final result = await agent.runConversation(text);
+      debugPrint('[Jailer] runConversation 返回 completed=${result.completed} final=${result.finalResponse}');
       // 只在完成时用 finalResponse 覆盖流式内容；预算耗尽/失败（completed=false）
       // 时保留已流式的半截回答，不覆盖为用户看不到的错误文案。
       if (result.completed &&
@@ -250,7 +256,8 @@ class _ChatScreenState extends State<ChatScreen> {
         // 预算耗尽：保留流式内容，追加提示。
         _addAssistant(result.finalResponse!);
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('[Jailer] runConversation 异常: $e\n$st');
       _addAssistant('出错了：$e');
     } finally {
       setState(() => _running = false);

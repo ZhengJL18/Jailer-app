@@ -18,6 +18,8 @@ library;
 
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
+
 import '../db/session_db.dart';
 import '../llm/openai_llm.dart';
 import '../tools/memory_manager.dart';
@@ -113,6 +115,7 @@ class JailerAgent {
       {'role': 'user', 'content': userMessage},
     ];
 
+    debugPrint('[Agent] runConversation 开始');
     // ── 会话落库：恢复历史 + 追加当前 user 消息 ──
     final sdb = sessionDb;
     final sid = sessionId;
@@ -181,11 +184,13 @@ class JailerAgent {
       var lastError = '';
       while (true) {
         try {
+          debugPrint('[Agent] 调用 chatStream (attempt $attempt, msg=${messages.length}, tools=${tools.length})');
           final result = await llm.chatStream(
             messages: messages,
             tools: tools,
             onDelta: onDelta,
           );
+          debugPrint('[Agent] chatStream 返回: content="${result.content?.substring(0, (result.content?.length ?? 0).clamp(0, 50))}" tools=${result.toolCalls.length}');
           turn = result;
           break;
         } catch (e) {

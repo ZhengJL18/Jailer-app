@@ -16,6 +16,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:http/http.dart' as http;
 
 /// 单次工具调用（OpenAI wire 格式聚合后）。
@@ -127,14 +128,23 @@ class OpenAiLlmClient {
 
     http.StreamedResponse response;
     try {
-      response = await _client.send(request);
+      // 建连+响应头超时：鸿蒙 QoE/弱网下请求可能无限挂起（App 无任何输出）。
+      // 挂起比报错更糟 —— 用户看到「无回应」而非「出错了」。30s 足够正常
+      // 流式响应，超时抛 LlmException 走 agent 重试。
+      debugPrint('[LLM] POST ${config.baseUrl} 发出');
+      response = await _client
+          .send(request)
+          .timeout(const Duration(seconds: 30));
+      debugPrint('[LLM] 响应头 ${response.statusCode}');
     } catch (e) {
-      // 网络错误（SocketException/ClientException）统一包成 LlmException，
-      // 让调用方（agent 主循环）能捕获。
+      // 网络错误（SocketException/ClientException/TimeoutException）统一包成
+      // LlmException，让调用方（agent 主循环）能捕获并重试。
+      debugPrint('[LLM] 网络错误/超时: $e');
       throw LlmException('LLM network error: $e');
     }
     if (response.statusCode != 200) {
       final errBody = await response.stream.bytesToString();
+      debugPrint('[LLM] 非200: ${response.statusCode} $errBody');
       throw LlmException(
         'LLM request failed: ${response.statusCode} $errBody',
         statusCode: response.statusCode,
@@ -164,14 +174,19 @@ class OpenAiLlmClient {
       if (tools != null && tools.isNotEmpty) 'tools': tools,
     };
 
-    final response = await _client.post(
-      Uri.parse(config.baseUrl),
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ${config.apiKey}',
-      },
-      body: jsonEncode(body),
-    );
+    final http.Response response;
+    try {
+      response = await _client.post(
+        Uri.parse(config.baseUrl),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ${config.apiKey}',
+        },
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 30));
+    } on TimeoutException {
+      throw LlmException('LLM request timeout after 30s');
+    }
     if (response.statusCode != 200) {
       throw LlmException(
         'LLM request failed: ${response.statusCode} ${response.body}',
@@ -249,7 +264,12 @@ class OpenAiLlmClient {
       );
     }
 
-    await for (final chunk in utf8.decoder.bind(response.stream)) {
+    // 流式读取空闲超时：AI 中途卡住（网络断/服务端挂起）时不会无限等待。
+    // 正常流式每几秒都有 chunk，30s 空闲远超正常间隔，不会误杀。
+    final timedStream = utf8.decoder
+        .bind(response.stream)
+        .timeout(const Duration(seconds: 30));
+    await for (final chunk in timedStream) {
       buffer += chunk;
       while (buffer.contains('\n')) {
         final nl = buffer.indexOf('\n');
