@@ -13,11 +13,12 @@ void main() {
       expect(await isSafeUrl('http://example.org/page'), isTrue);
     });
 
-    test('私网 IP 拦截', () async {
-      expect(await isSafeUrl('http://192.168.1.1'), isFalse);
-      expect(await isSafeUrl('http://10.0.0.1'), isFalse);
-      expect(await isSafeUrl('http://172.16.0.1'), isFalse);
-      expect(await isSafeUrl('http://127.0.0.1'), isFalse);
+    test('私网 IP 默认放行（私有软件翻墙适配）', () async {
+      // allowPrivateUrls 默认 true：VPN/代理下 DNS 解析到内网地址不拦截。
+      expect(await isSafeUrl('http://192.168.1.1'), isTrue);
+      expect(await isSafeUrl('http://10.0.0.1'), isTrue);
+      expect(await isSafeUrl('http://172.16.0.1'), isTrue);
+      expect(await isSafeUrl('http://127.0.0.1'), isTrue);
     });
 
     test('云元数据端点永远拦截', () async {

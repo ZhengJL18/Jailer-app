@@ -40,20 +40,17 @@ void main() {
       expect(isAllowedUrl('https://sub.github.com/x'), isTrue);
     });
 
-    test('视频平台拒绝（防刷）', () {
-      expect(isAllowedUrl('https://www.douyin.com/video/123'), isFalse);
-      expect(isAllowedUrl('https://www.kuaishou.com/x'), isFalse);
-      expect(isAllowedUrl('https://www.bilibili.com/video/123'), isFalse);
-      expect(isAllowedUrl('https://weibo.com/x'), isFalse);
+    test('任意 http/https 域名放行（私有软件不设白名单）', () {
+      // 单机私有 App，翻墙/代理下任意站点都能访问（SSRF 由 url_safety 兜底）。
+      expect(isAllowedUrl('https://www.douyin.com/video/123'), isTrue);
+      expect(isAllowedUrl('https://www.kuaishou.com/x'), isTrue);
+      expect(isAllowedUrl('https://random-site.com'), isTrue);
+      expect(isAllowedUrl('http://192.168.1.1'), isTrue);
     });
 
     test('非 http/https 拒绝', () {
       expect(isAllowedUrl('file:///etc/passwd'), isFalse);
       expect(isAllowedUrl('ftp://github.com'), isFalse);
-    });
-
-    test('未知域名拒绝', () {
-      expect(isAllowedUrl('https://random-site.com'), isFalse);
     });
 
     test('畸形 URL 拒绝', () {

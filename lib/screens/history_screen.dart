@@ -5,6 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../main.dart' show resumeSessionHandler;
 import '../tools/session_search_tool.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -35,6 +36,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _sessions = sessions;
       _loading = false;
     });
+  }
+
+  /// 继续聊天：切回主对话页并加载该会话历史。
+  Future<void> _continueChat(String sessionId) async {
+    final handler = resumeSessionHandler;
+    if (handler == null) return;
+    await handler(sessionId);
+    if (!mounted) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   Future<void> _viewSession(String sessionId) async {
@@ -88,9 +98,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       leading: const Icon(Icons.chat_bubble_outline),
                       title: Text(title),
                       subtitle: Text('$count 条消息${model.isNotEmpty ? ' · $model' : ''}'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () => _deleteSession(id),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 继续聊天：切回主对话页并加载该会话历史。
+                          IconButton(
+                            icon: const Icon(Icons.play_arrow, color: Colors.teal),
+                            tooltip: '继续聊天',
+                            onPressed: () => _continueChat(id),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _deleteSession(id),
+                          ),
+                        ],
                       ),
                       onTap: () => _viewSession(id),
                     );

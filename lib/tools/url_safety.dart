@@ -46,7 +46,11 @@ const Set<String> trustedPrivateIpHosts = {
 const String cgnatNetwork = '100.64.0.0/10';
 
 /// 允许访问私网 IP 的开关（对应 HERMES_ALLOW_PRIVATE_URLS）。
-bool allowPrivateUrls = false;
+///
+/// 默认 true：单机私有 App，走 VPN/代理时 DNS 可能解析到代理服务器的内网
+/// 地址，拦私网 IP 会误杀正常访问。云元数据端点由 [alwaysBlockedIps] 永远
+/// 拦截（SSRF 安全底线，不受此开关影响）。
+bool allowPrivateUrls = true;
 
 /// 解析 hostname（IPv4/IPv6）。
 Future<List<InternetAddress>> _lookup(String hostname) async {

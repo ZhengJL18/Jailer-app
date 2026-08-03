@@ -85,48 +85,16 @@ List<UserScript> userScriptsForHost(String host) {
   return result;
 }
 
-/// 域名的白名单（私域 + 开放站）。不在名单的 URL 抓取被拒绝。
-/// 防刷核心：抖音/快手/B站等视频平台默认不在名单。
-const Set<String> allowlistHosts = {
-  // 私域（用户指定的三大平台）。
-  'zhihu.com',
-  'xiaohongshu.com',
-  'tieba.baidu.com',
-  'baidu.com',
-  // 开放站。
-  'github.com',
-  'gitee.com',
-  'wikipedia.org',
-  'zh.wikipedia.org',
-  'developer.mozilla.org',
-  'stackoverflow.com',
-  'medium.com',
-  'csdn.net',
-  'juejin.cn',
-  'cnblogs.com',
-  'segmentfault.com',
-  'infoq.cn',
-  'dart.dev',
-  'flutter.dev',
-  'api.flutter.dev',
-  'pub.dev',
-};
-
-/// 是否允许抓取某 URL（白名单域名 + http/https）。
+/// 是否允许抓取某 URL。
+///
+/// 单机私有 App：允许所有 http/https 域名（不做域名白名单限制，翻墙/代理
+/// 下的任意站点都能访问）。SSRF 安全底线（云元数据端点、私网 IP）由
+/// url_safety 的 isSafeUrl 兜底。
 bool isAllowedUrl(String url) {
   try {
     final uri = Uri.parse(url);
     final scheme = uri.scheme.toLowerCase();
-    if (scheme != 'http' && scheme != 'https') {
-      return false;
-    }
-    final host = uri.host.toLowerCase();
-    for (final allowed in allowlistHosts) {
-      if (host == allowed || host.endsWith('.$allowed')) {
-        return true;
-      }
-    }
-    return false;
+    return scheme == 'http' || scheme == 'https';
   } catch (_) {
     return false;
   }

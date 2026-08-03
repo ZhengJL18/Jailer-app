@@ -26,6 +26,10 @@ void main() {
   runApp(const JailerApp());
 }
 
+/// 对话历史页「继续聊天」回调：切换 ChatScreen 到指定会话。
+/// 由 ChatScreen 注册，HistoryScreen 调用。
+Future<void> Function(String sessionId)? resumeSessionHandler;
+
 class JailerApp extends StatelessWidget {
   const JailerApp({super.key});
 
@@ -87,7 +91,40 @@ class _ChatScreenState extends State<ChatScreen> {
     registerWebTools();
     registerTodoTool();
     registerSessionSearchTool();
+    // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
+    resumeSessionHandler = _resumeSession;
     _initCwd();
+  }
+
+  /// 从对话历史切回某个会话继续聊：切换 sessionId + 加载历史到 UI。
+  Future<void> _resumeSession(String sessionId) async {
+    final sdb = _sessionDb;
+    if (sdb == null) return;
+    if (!mounted) return;
+    setState(() {
+      _messages.clear();
+      _toolRunningIdx.clear();
+      _currentSessionId = sessionId;
+    });
+    try {
+      final stored = await sdb.getMessages(sessionId);
+      for (final m in stored) {
+        final role = m['role'] as String? ?? 'user';
+        final content = m['content'] as String?;
+        if (role == 'user' && content != null) {
+          _messages.add(_ChatMessage.user(content));
+        } else if (role == 'assistant' && content != null) {
+          _messages.add(_ChatMessage.assistant(content));
+        } else if (role == 'tool') {
+          _messages.add(_ChatMessage.tool(
+            m['tool_name'] as String? ?? '',
+            'done',
+          ));
+        }
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {});
   }
 
   /// 构建系统提示（含记忆 + skill 索引）。
