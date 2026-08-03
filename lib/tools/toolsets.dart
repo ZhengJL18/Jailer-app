@@ -178,10 +178,10 @@ Map<String, ToolsetDef> toolsetDefs = {
   'git': ToolsetDef(
     description:
         'Git version control via embedded libgit2: init, status, add, '
-        'commit, log, branch',
+        'commit, log, branch, clone, push, pull',
     tools: [
       'git_version', 'git_init', 'git_status', 'git_add', 'git_commit',
-      'git_log', 'git_branch',
+      'git_log', 'git_branch', 'git_clone', 'git_push', 'git_pull',
     ],
   ),
   'tts': ToolsetDef(

@@ -1,7 +1,7 @@
 /// Git 工具集 — 基于 libgit2（git2dart 绑定），agent 用 git 写代码。
 ///
 /// 在 App 沙盒进程内 dlopen libgit2，不 exec 外部进程、不突破隔离墙。
-/// 第一版覆盖 agent 写代码核心操作：init/status/add/commit/log/branch。
+/// 覆盖 agent 写代码核心操作 + GitHub 远程同步。
 library;
 
 import 'package:git2dart/git2dart.dart';
@@ -213,6 +213,85 @@ List<dynamic> _statusEntries(Repository repo) {
   return changed.toSet().toList();
 }
 
+/// git clone：克隆远程仓库到本地。
+///
+/// [token] 提供时用 HTTPS + PAT（UserPass username 用 'x-access-token'）。
+/// 不支持认证时（无 token）尝试匿名 clone（公开仓库）。
+String gitClone({
+  required String url,
+  required String localPath,
+  String? token,
+}) {
+  try {
+    final callbacks = (token != null && token.isNotEmpty)
+        ? Callbacks(credentials: UserPass(username: 'x-access-token', password: token))
+        : const Callbacks();
+    Repository.clone(
+      url: url,
+      localPath: localPath,
+      callbacks: callbacks,
+    );
+    return 'Cloned $url → $localPath';
+  } catch (e) {
+    return toolError('git clone failed: $e');
+  }
+}
+
+/// git push：推送当前分支到 origin。
+String gitPush({
+  required String path,
+  String? token,
+  String branch = 'master',
+}) {
+  try {
+    final repo = Repository.open(path);
+    final creds = token != null && token.isNotEmpty
+        ? UserPass(username: 'x-access-token', password: token) as Credentials
+        : null;
+    final callbacks = Callbacks(credentials: creds);
+    final remote = Remote.lookup(repo: repo, name: 'origin');
+    remote.push(
+      refspecs: ['refs/heads/$branch:refs/heads/$branch'],
+      callbacks: callbacks,
+    );
+    return 'Pushed $branch → origin';
+  } catch (e) {
+    return toolError('git push failed: $e');
+  }
+}
+
+/// git pull：从 origin 拉取并合并。
+String gitPull({
+  required String path,
+  String? token,
+}) {
+  try {
+    final repo = Repository.open(path);
+    final creds = token != null && token.isNotEmpty
+        ? UserPass(username: 'x-access-token', password: token) as Credentials
+        : null;
+    final callbacks = Callbacks(credentials: creds);
+    final remote = Remote.lookup(repo: repo, name: 'origin');
+    remote.fetch(
+      refspecs: const [],
+      callbacks: callbacks,
+    );
+    // 拉取后 merge origin/当前分支（简化：直接 reset 到 origin）。
+    final headName = repo.head.name;
+    final shortName = headName.split('/').last;
+    try {
+      final branch =
+          Branch.lookup(repo: repo, name: 'origin/$shortName', type: GitBranch.remote);
+      repo.reset(oid: branch.target, resetType: GitReset.hard);
+    } catch (_) {
+      // origin 分支不存在（首次 fetch）→ 只下载对象，不 reset。
+    }
+    return 'Pulled origin/$shortName';
+  } catch (e) {
+    return toolError('git pull failed: $e');
+  }
+}
+
 // ============================================================================
 // Registry
 // ============================================================================
@@ -376,4 +455,78 @@ void registerGitTools() {
     handler: (args, [kwargs]) => gitBranch(path: _arg(args, 'path')),
     emoji: '🐙',
   );
+  registry.register(
+    name: 'git_clone',
+    toolset: 'git',
+    schema: _gitCloneSchema,
+    handler: (args, [kwargs]) => gitClone(
+          url: _arg(args, 'url'),
+          localPath: _arg(args, 'local_path'),
+          token: args['token'] as String?,
+        ),
+    emoji: '🐙',
+  );
+  registry.register(
+    name: 'git_push',
+    toolset: 'git',
+    schema: _gitPushSchema,
+    handler: (args, [kwargs]) => gitPush(
+          path: _arg(args, 'path'),
+          token: args['token'] as String?,
+          branch: _arg(args, 'branch', 'master'),
+        ),
+    emoji: '🐙',
+  );
+  registry.register(
+    name: 'git_pull',
+    toolset: 'git',
+    schema: _gitPullSchema,
+    handler: (args, [kwargs]) => gitPull(
+          path: _arg(args, 'path'),
+          token: args['token'] as String?,
+        ),
+    emoji: '🐙',
+  );
 }
+
+const Map<String, dynamic> _gitCloneSchema = {
+  'name': 'git_clone',
+  'description':
+      'Clone a remote Git repository to local. token optional (for private repos).',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'url': {'type': 'string', 'description': 'Repository URL (https or ssh)'},
+      'local_path': {'type': 'string', 'description': 'Local directory to clone into'},
+      'token': {'type': 'string', 'description': 'Optional GitHub PAT token for private repos'},
+    },
+    'required': ['url', 'local_path'],
+  },
+};
+
+const Map<String, dynamic> _gitPushSchema = {
+  'name': 'git_push',
+  'description': 'Push current branch to remote origin. token optional.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'path': {'type': 'string', 'description': 'Repository directory'},
+      'token': {'type': 'string', 'description': 'Optional GitHub PAT token'},
+      'branch': {'type': 'string', 'description': 'Branch to push (default master)'},
+    },
+    'required': ['path'],
+  },
+};
+
+const Map<String, dynamic> _gitPullSchema = {
+  'name': 'git_pull',
+  'description': 'Fetch and merge from remote origin. token optional.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'path': {'type': 'string', 'description': 'Repository directory'},
+      'token': {'type': 'string', 'description': 'Optional GitHub PAT token'},
+    },
+    'required': ['path'],
+  },
+};

@@ -9,6 +9,7 @@ import 'agent/context_compressor.dart';
 import 'config/jailer_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
+import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
 import 'tools/file_tools.dart';
@@ -317,6 +318,15 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('Hermes'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.code),
+            tooltip: 'GitHub',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const GitHubScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {

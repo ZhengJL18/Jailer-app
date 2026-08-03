@@ -146,23 +146,79 @@ class _SkillsScreenState extends State<SkillsScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _skills.isEmpty
-              ? const Center(child: Text('暂无技能，点右上角 + 创建'))
-              : ListView.builder(
-                  itemCount: _skills.length,
-                  itemBuilder: (context, i) {
-                    final s = _skills[i];
-                    return ListTile(
-                      leading: const Icon(Icons.menu_book),
-                      title: Text(s.name),
-                      subtitle: Text('${s.category} · ${s.description}'),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline),
-                        onPressed: () => _deleteSkill(s),
-                      ),
-                      onTap: () => _viewSkill(s),
-                    );
-                  },
+              ? const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.menu_book, size: 56, color: Colors.grey),
+                      SizedBox(height: 12),
+                      Text('暂无技能，点右上角 + 创建'),
+                    ],
+                  ),
+                )
+              : _buildGroupedList(),
+    );
+  }
+
+  /// 按分类分组的技能列表。
+  Widget _buildGroupedList() {
+    final groups = <String, List<SkillMeta>>{};
+    for (final s in _skills) {
+      final cat = s.category.isEmpty ? 'general' : s.category;
+      groups.putIfAbsent(cat, () => []).add(s);
+    }
+    final sortedCats = groups.keys.toList()..sort();
+
+    return ListView(
+      children: [
+        for (final cat in sortedCats) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Row(
+              children: [
+                Icon(
+                  cat == 'general' ? Icons.category : Icons.folder,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
+                const SizedBox(width: 6),
+                Text(
+                  cat,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  '${groups[cat]!.length}',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+          for (final s in groups[cat]!)
+            ListTile(
+              leading: CircleAvatar(
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                child: const Icon(Icons.menu_book, size: 18),
+              ),
+              title: Text(s.name, style: const TextStyle(fontWeight: FontWeight.w500)),
+              subtitle: Text(
+                s.description.isEmpty ? '无描述' : s.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => _deleteSkill(s),
+              ),
+              onTap: () => _viewSkill(s),
+            ),
+        ],
+        const SizedBox(height: 16),
+      ],
     );
   }
 }
