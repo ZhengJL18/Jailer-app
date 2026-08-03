@@ -1508,31 +1508,26 @@ class LocalFileOperations implements FileOperations {
   SearchResult _searchFiles(String pattern, String path, int limit, int offset) {
     final baseName = pattern.split('/').last;
     final files = <String>[];
-    var truncated = false;
-    try {
-      final root = Directory(path);
-      final walk = root.listSync(recursive: true, followLinks: false);
-      for (final e in walk) {
-        if (e is! File) {
-          continue;
-        }
-        // 上限保护：同步遍历大目录会卡 UI 主 isolate。
-        if (files.length >= maxSearchFiles) {
-          truncated = true;
-          break;
-        }
-        final name = p.basename(e.path);
-        if (_globMatch(baseName, name)) {
-          files.add(e.path);
-        }
+    // 受控遍历：最多访问 maxSearchFiles 个条目就截断。
+    // 用迭代 DFS 而非 listSync(recursive) —— 后者是 eager 的，会先把整棵
+    // 目录树物化成 List 才返回；授予「所有文件访问」后从 /sdcard 全盘搜索
+    // 时，同步物化几十万条目会卡死 UI 主 isolate。
+    final (walked, visited) = _walkLimited(path, maxSearchFiles);
+    for (final e in walked) {
+      if (e is! File) {
+        continue;
       }
-    } catch (_) {}
+      final name = p.basename(e.path);
+      if (_globMatch(baseName, name)) {
+        files.add(e.path);
+      }
+    }
     files.sort();
     final page = files.skip(offset).take(limit).toList();
     return SearchResult(
       files: page,
       totalCount: files.length,
-      truncated: truncated,
+      truncated: visited,
     );
   }
 
@@ -1669,12 +1664,9 @@ class LocalFileOperations implements FileOperations {
       if (!d.existsSync()) {
         return files;
       }
-      final walk = d.listSync(recursive: true, followLinks: false);
-      for (final e in walk) {
+      final (walked, _) = _walkLimited(path, maxSearchFiles);
+      for (final e in walked) {
         if (e is File) {
-          if (files.length >= maxSearchFiles) {
-            break; // 上限保护：防止同步遍历大目录卡 UI。
-          }
           if (_fileGlobMatch(fileGlob, p.basename(e.path))) {
             files.add(e.path);
           }
@@ -1682,6 +1674,36 @@ class LocalFileOperations implements FileOperations {
       }
     } catch (_) {}
     return files;
+  }
+
+  /// 受控递归遍历：迭代 DFS + 访问条目计数。
+  ///
+  /// 返回 (访问到的条目, 是否因达到上限提前截断)。
+  /// 用显式栈逐目录 listSync（非递归、单层），每访问一个条目就计数；
+  /// 超过 [maxEntries] 立即停止 —— 同步接口下既不阻塞 UI 太久，又能保证
+  /// 全盘大目录（/sdcard）下有限时间内返回。权限拒绝的目录跳过（continue）。
+  (List<FileSystemEntity>, bool) _walkLimited(String path, int maxEntries) {
+    final result = <FileSystemEntity>[];
+    final stack = <Directory>[Directory(path)];
+    while (stack.isNotEmpty && result.length < maxEntries) {
+      final dir = stack.removeLast();
+      List<FileSystemEntity> entries;
+      try {
+        entries = dir.listSync(followLinks: false);
+      } catch (_) {
+        continue; // 无权限/损坏目录 → 跳过，继续其他分支。
+      }
+      for (final e in entries) {
+        if (result.length >= maxEntries) {
+          break;
+        }
+        result.add(e);
+        if (e is Directory) {
+          stack.add(e);
+        }
+      }
+    }
+    return (result, result.length >= maxEntries);
   }
 
   bool _fileGlobMatch(String? glob, String name) {

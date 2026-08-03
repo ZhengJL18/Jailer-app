@@ -171,6 +171,21 @@ void main() {
       expect(map['files'].length, 1);
       expect(map['files'][0], endsWith('a.dart'));
     });
+
+    test('large dir search truncates at walk cap (no full-tree hang)', () {
+      // 超过 maxSearchFiles(10000) 的条目数 → 受控遍历必须截断并标记 truncated，
+      // 而不能像旧的 listSync(recursive) 那样把整棵树物化（会卡死 UI 主 isolate）。
+      const walkCap = 10000;
+      for (var i = 0; i < walkCap + 10; i++) {
+        File(p.join(tmp.path, 'f$i.txt')).writeAsStringSync('');
+      }
+      final result = searchFileTool(pattern: '*.txt', target: 'files');
+      // 截断时 searchFileTool 会在 JSON 后追加 [Hint: Results truncated...] 提示行。
+      final map = jsonDecode(result.split('\n').first) as Map;
+      // 至少遍历了上限内的文件；不要求精确值，只验证不会全量返回（>cap 会被截断）。
+      expect(map['truncated'], isTrue);
+      expect(map['total_count'], lessThanOrEqualTo(walkCap));
+    });
   });
 
   group('dispatch via registry', () {
