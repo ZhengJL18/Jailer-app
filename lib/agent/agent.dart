@@ -233,7 +233,8 @@ class JailerAgent {
 
       // ── 有 tool_calls → 执行并回填 ──
       if (turn.hasToolCalls) {
-        for (final tc in turn.toolCalls) {
+        for (var ti = 0; ti < turn.toolCalls.length; ti++) {
+          final tc = turn.toolCalls[ti];
           Map<String, dynamic> args;
           try {
             final decoded = tc.arguments.isEmpty
@@ -248,9 +249,13 @@ class JailerAgent {
           final result = await handleFunctionCall(tc.name, args);
           onToolEvent?.call(tc.name, 'done');
 
+          // 工具 id 缺失时合成（部分后端不返回 id）。
+          final effectiveId =
+              tc.id.isEmpty ? 'call_${apiCallCount}_$ti' : tc.id;
+
           messages.add({
             'role': 'tool',
-            'tool_call_id': tc.id,
+            'tool_call_id': effectiveId,
             'name': tc.name, // OpenAI 兼容端要求 tool 消息带 name。
             'content': result,
           });
@@ -260,7 +265,7 @@ class JailerAgent {
               sid,
               role: 'tool',
               content: result,
-              toolCallId: tc.id,
+              toolCallId: effectiveId,
               toolName: tc.name,
             );
           }

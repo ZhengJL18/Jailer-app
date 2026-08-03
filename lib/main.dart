@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:markdown_widget/markdown_widget.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
+import 'agent/context_compressor.dart';
 import 'config/jailer_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
@@ -165,11 +167,29 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    // 上下文压缩：超阈值时用主 LLM 摘要中间段（手机内存刚需）。
+    final compressor = ContextCompressor(
+      contextLength: 100000,
+      summarizer: (middle) async {
+        final summaryTurn = await llm.chatStream(
+          messages: [
+            {
+              'role': 'system',
+              'content': 'Summarize the conversation below, preserving key '
+                  'facts, decisions, and context. Be concise.',
+            },
+            {'role': 'user', 'content': jsonEncode(middle)},
+          ],
+        );
+        return summaryTurn.content ?? '';
+      },
+    );
     final agent = JailerAgent(
       llm: llm,
       memoryManager: _memory,
       sessionDb: _sessionDb,
       sessionId: _currentSessionId,
+      contextCompressor: compressor,
       systemPrompt: _systemPrompt(),
       toolDefinitionsProvider: () => getToolDefinitions(
         enabledToolsets: const [
