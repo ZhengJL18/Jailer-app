@@ -312,7 +312,7 @@ Future<String> webExtractTool(
         'url': url,
         'title': '',
         'content': '',
-        'error': 'Blocked: domain not in allowlist. Jailer only extracts from approved sites.',
+        'error': 'Blocked: domain not in allowlist. Hermes only extracts from approved sites.',
       });
       continue;
     }

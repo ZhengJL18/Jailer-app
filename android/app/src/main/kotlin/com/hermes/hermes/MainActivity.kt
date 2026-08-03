@@ -1,4 +1,4 @@
-package com.jailer.jailer
+package com.hermes.hermes
 
 import android.Manifest
 import android.content.Intent
@@ -15,7 +15,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.jailer.jailer/storage"
+            "com.hermes.hermes/storage"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 // 原生检测「所有文件访问」权限 —— 比 permission_handler 在鸿蒙上可靠。

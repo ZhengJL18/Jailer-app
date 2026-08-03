@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.jailer.jailer"
+    namespace = "com.hermes.hermes"
     // permission_handler_android 要求 compileSdk 37+。
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
@@ -29,7 +29,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.jailer.jailer"
+        applicationId = "com.hermes.hermes"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

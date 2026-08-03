@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
@@ -20,6 +19,7 @@ import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
 import 'tools/todo_tool.dart';
 import 'tools/web_tools.dart';
+import 'widgets/markdown_math.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -32,7 +32,7 @@ class JailerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Jailer',
+      title: 'Hermes',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
@@ -92,7 +92,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 构建系统提示（含记忆 + skill 索引）。
   String _systemPrompt() {
-    var prompt = '你是 Jailer，一个运行在 Android App 沙盒里的 agent。'
+    var prompt = '你是 Hermes，一个运行在 Android App 沙盒里的 agent。'
         '你可以调用工具操作 App 自己的文件空间（read_file / write_file / '
         'patch / search_files），管理记忆（memory），上网（web_search / '
         'web_extract），管理待办（todo），回顾会话（session_search），'
@@ -268,7 +268,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Jailer'),
+        title: const Text('Hermes'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -285,7 +285,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: _messages.isEmpty
                 ? const Center(
-                    child: Text('Jailer —— 沙盒内的 agent。\n输入任务试试，'
+                    child: Text('Hermes —— 沙盒内的 agent。\n输入任务试试，'
                         '比如：在 notes 目录写一首关于安卓的俳句并读给我看'),
                   )
                 : ListView.builder(
@@ -357,7 +357,7 @@ class _ChatScreenState extends State<ChatScreen> {
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.85,
             ),
-            child: MarkdownBody(
+            child: HermesMarkdown(
               data: m.text ?? '',
               selectable: true,
             ),

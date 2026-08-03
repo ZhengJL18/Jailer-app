@@ -15,7 +15,7 @@ import '../tools/file_tools.dart';
 
 /// MainActivity 原生通道（见 MainActivity.kt）。
 const MethodChannel _storageChannel =
-    MethodChannel('com.jailer.jailer/storage');
+    MethodChannel('com.hermes.hermes/storage');
 
 /// 是否已授予「所有文件访问」。
 ///

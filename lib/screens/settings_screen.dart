@@ -147,7 +147,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final labels = vendorLabels;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Jailer 设置')),
+      appBar: AppBar(title: const Text('Hermes 设置')),
       body: Form(
         key: _formKey,
         child: ListView(
