@@ -1,5 +1,76 @@
 package com.jailer.jailer
 
+import android.Manifest
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity()
+class MainActivity : FlutterActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.jailer.jailer/storage"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                // 原生检测「所有文件访问」权限 —— 比 permission_handler 在鸿蒙上可靠。
+                "isExternalStorageManager" -> {
+                    val granted = isExternalStorageManagerGranted()
+                    result.success(granted)
+                }
+                // 打开「所有文件访问」专用设置页。
+                "openExternalStorageSettings" -> {
+                    openExternalStorageSettings()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun isExternalStorageManagerGranted(): Boolean {
+        // Android 11+ (API 30)：用 Environment.isExternalStorageManager()。
+        // 鸿蒙基于 AOSP 应支持；更低版本或异常时 fallback 到 WRITE_EXTERNAL_STORAGE。
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                Environment.isExternalStorageManager()
+            } catch (e: Exception) {
+                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+        } else {
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun openExternalStorageSettings() {
+        // 专用页：ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION（Android 11+）。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+                return
+            } catch (e: Exception) {
+                // 该 action 不可用（部分鸿蒙版本）→ fallback 通用应用设置页。
+            }
+        }
+        // 通用应用设置页（Android 10 及以下 / 鸿蒙 fallback）。
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+            intent.data = Uri.parse("package:$packageName")
+            startActivity(intent)
+        } catch (e: Exception) {
+            // 最后兜底：跳到系统设置首页。
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
+    }
+}
