@@ -175,6 +175,15 @@ Map<String, ToolsetDef> toolsetDefs = {
         'and search (content + files)',
     tools: ['read_file', 'write_file', 'patch', 'search_files'],
   ),
+  'git': ToolsetDef(
+    description:
+        'Git version control via embedded libgit2: init, status, add, '
+        'commit, log, branch',
+    tools: [
+      'git_version', 'git_init', 'git_status', 'git_add', 'git_commit',
+      'git_log', 'git_branch',
+    ],
+  ),
   'tts': ToolsetDef(
     description:
         'Text-to-speech: convert text to audio with Edge TTS (free), '

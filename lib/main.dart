@@ -12,6 +12,7 @@ import 'llm/openai_llm.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
 import 'tools/file_tools.dart';
+import 'tools/git_tools.dart';
 import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/model_tools.dart';
@@ -91,6 +92,7 @@ class _ChatScreenState extends State<ChatScreen> {
     registerWebTools();
     registerTodoTool();
     registerSessionSearchTool();
+    registerGitTools();
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     _initCwd();
@@ -240,6 +242,7 @@ class _ChatScreenState extends State<ChatScreen> {
           'todo',
           'skills',
           'session_search',
+          'git',
         ],
         quietMode: true,
       ),
