@@ -213,26 +213,45 @@ Future<bool> isSafeUrl(String url) async {
 }
 
 /// 敏感查询参数名检测（URL 含凭据时拦截）。
+///
+/// 对齐 Python `_SENSITIVE_QUERY_PARAM_NAMES`：**精确匹配**窄名单，且只匹配
+/// 值非空的参数。故意不含裸词 `key`/`auth`/`sig`（避免误杀 `?keyword=`、
+/// `?authentication=`、CDN 的 `?sig=` 等合法参数）。
 const Set<String> sensitiveQueryKeys = {
-  'api_key', 'apikey', 'api-key',
-  'access_token', 'access-token',
-  'auth', 'authorization',
-  'token', 'key', 'secret',
-  'password', 'passwd', 'sig',
+  'access_token',
+  'api_key',
+  'apikey',
+  'auth_token',
+  'authorization',
+  'awsaccesskeyid',
+  'client_secret',
+  'credential',
+  'credentials',
+  'jwt',
+  'password',
+  'passwd',
+  'secret',
+  'session_id',
+  'signature',
+  'token',
+  'x_amz_security_token',
+  'x_amz_signature',
+  'x-amz-security-token',
+  'x-amz-signature',
 };
 
 /// 返回 URL 中的敏感查询参数名，无则 null。
 String? sensitiveQueryParamName(String url) {
   try {
     final uri = Uri.parse(url);
-    for (final key in uri.queryParameters.keys) {
-      final lower = key.toLowerCase();
-      if (sensitiveQueryKeys.contains(lower)) {
-        return key;
-      }
-      if (lower.contains('token') || lower.contains('key') ||
-          lower.contains('secret') || lower.contains('auth')) {
-        return key;
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      return null;
+    }
+    // 用 queryParametersAll 保留重复参数 + 检查值非空。
+    for (final entry in uri.queryParametersAll.entries) {
+      if (sensitiveQueryKeys.contains(entry.key.toLowerCase()) &&
+          entry.value.any((v) => v.isNotEmpty)) {
+        return entry.key;
       }
     }
   } catch (_) {}

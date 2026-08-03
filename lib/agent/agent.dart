@@ -23,7 +23,9 @@ import '../llm/openai_llm.dart';
 import '../tools/memory_manager.dart';
 import '../tools/model_tools.dart';
 import 'context_compressor.dart';
+import 'error_classifier.dart';
 import 'iteration_budget.dart';
+import 'retry_utils.dart';
 
 /// agent 主循环的结果。
 class ConversationResult {
@@ -116,9 +118,26 @@ class JailerAgent {
     final sid = sessionId;
     if (sdb != null && sid != null) {
       // 从库恢复历史（若该 session 已有消息）。
+      // DB 行含内部列（id/session_id/timestamp/active 等），必须转成
+      // OpenAI 消息格式再发给 LLM，否则严格后端会 400。
       final stored = await sdb.getMessages(sid);
       if (stored.isNotEmpty) {
-        messages.insertAll(1, stored);
+        final restored = <Map<String, dynamic>>[];
+        for (final m in stored) {
+          final role = m['role'] as String? ?? 'user';
+          final msg = <String, dynamic>{
+            'role': role,
+            if (m['content'] != null) 'content': m['content'],
+          };
+          if (role == 'tool') {
+            msg['tool_call_id'] = m['tool_call_id'] ?? '';
+            msg['name'] = m['tool_name'] ?? '';
+          } else if (role == 'assistant' && m['tool_calls'] is List) {
+            msg['tool_calls'] = m['tool_calls'];
+          }
+          restored.add(msg);
+        }
+        messages.insertAll(1, restored);
       }
       await sdb.appendMessage(sid, role: 'user', content: userMessage);
     }
@@ -155,23 +174,45 @@ class JailerAgent {
           ? toolDefinitionsProvider!()
           : getToolDefinitions(quietMode: true);
 
-      // ── LLM 调用 ──
-      final LlmTurnResult turn;
-      try {
-        turn = await llm.chatStream(
-          messages: messages,
-          tools: tools,
-          onDelta: onDelta,
-        );
-      } on LlmException catch (e) {
-        failed = true;
-        return ConversationResult(
-          finalResponse: 'API call failed: $e',
-          messages: messages,
-          apiCalls: apiCallCount,
-          completed: false,
-          error: e.toString(),
-        );
+      // ── LLM 调用（带错误分类 + 重试） ──
+      LlmTurnResult turn;
+      const maxRetries = 3;
+      var attempt = 0;
+      var lastError = '';
+      while (true) {
+        try {
+          final result = await llm.chatStream(
+            messages: messages,
+            tools: tools,
+            onDelta: onDelta,
+          );
+          turn = result;
+          break;
+        } catch (e) {
+          // 分类错误，决定是否重试。
+          final classified = classifyApiError(e);
+          lastError = e.toString();
+          if (!classified.retryable || attempt >= maxRetries) {
+            failed = true;
+            return ConversationResult(
+              finalResponse: 'API call failed: $lastError',
+              messages: messages,
+              apiCalls: apiCallCount,
+              completed: false,
+              error: lastError,
+            );
+          }
+          // 退避后重试。
+          attempt++;
+          final delay = jitteredBackoff(
+            attempt,
+            baseDelay: 2.0,
+            maxDelay: 15.0,
+          );
+          await Future<void>.delayed(
+            Duration(milliseconds: (delay * 1000).toInt()),
+          );
+        }
       }
 
       // 把 assistant turn 追加进消息历史。

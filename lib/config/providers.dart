@@ -78,8 +78,9 @@ class ProviderDef {
 // 人类友好/遗留名 → 规范 provider ID。用 models.dev ID 优先。
 
 const Map<String, String> aliases = {
-  // openrouter
-  'openai': 'openrouter', // bare "openai" → route through aggregator
+  // 注意：Hermes 原版把裸 'openai' 路由到 openrouter 聚合器（省钱）。
+  // Jailer 是单机 App，设置页把 OpenAI 当独立厂商 —— 用户选 OpenAI 应连
+  // api.openai.com。要 openrouter 直接选 openrouter 厂商。
 
   // zai
   'glm': 'zai',

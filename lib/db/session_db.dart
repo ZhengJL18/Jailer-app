@@ -247,6 +247,7 @@ class SessionDB {
   }) async {
     final rows = await db.query(
       'sessions',
+      where: 'archived = 0', // 软删（archived=1）的会话不显示。
       orderBy: 'started_at DESC',
       limit: limit,
     );

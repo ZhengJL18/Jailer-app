@@ -125,13 +125,32 @@ class OpenAiLlmClient {
       })
       ..body = jsonEncode(body);
 
-    final response = await _client.send(request);
+    http.StreamedResponse response;
+    try {
+      response = await _client.send(request);
+    } catch (e) {
+      // 网络错误（SocketException/ClientException）统一包成 LlmException，
+      // 让调用方（agent 主循环）能捕获。
+      throw LlmException('LLM network error: $e');
+    }
     if (response.statusCode != 200) {
       final errBody = await response.stream.bytesToString();
-      throw LlmException('LLM request failed: ${response.statusCode} $errBody');
+      throw LlmException(
+        'LLM request failed: ${response.statusCode} $errBody',
+        statusCode: response.statusCode,
+        body: errBody,
+      );
     }
 
-    return _parseStreamStream(response, onDelta: onDelta);
+    try {
+      return await _parseStreamStream(response, onDelta: onDelta);
+    } catch (e) {
+      // 流中断/解析错误也包成 LlmException。
+      if (e is LlmException) {
+        rethrow;
+      }
+      throw LlmException('LLM stream error: $e');
+    }
   }
 
   /// 非流式 chat.completions（流式失败的兜底，Hermes 同样提供）。
@@ -154,7 +173,11 @@ class OpenAiLlmClient {
       body: jsonEncode(body),
     );
     if (response.statusCode != 200) {
-      throw LlmException('LLM request failed: ${response.statusCode} ${response.body}');
+      throw LlmException(
+        'LLM request failed: ${response.statusCode} ${response.body}',
+        statusCode: response.statusCode,
+        body: response.body,
+      );
     }
     final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final choice = (data['choices'] as List? ?? const []).isEmpty
@@ -366,7 +389,10 @@ void _processSseLine(
 /// LLM 请求异常。
 class LlmException implements Exception {
   final String message;
-  LlmException(this.message);
+  final int? statusCode; // 可选：HTTP 状态码（供 error_classifier 分类）。
+  final String? body; // 可选：错误响应体。
+
+  LlmException(this.message, {this.statusCode, this.body});
   @override
   String toString() => message;
 }

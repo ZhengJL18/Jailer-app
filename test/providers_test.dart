@@ -9,7 +9,8 @@ void main() {
 
   group('normalizeProvider / aliases', () {
     test('normalize aliases to canonical', () {
-      expect(normalizeProvider('openai'), 'openrouter');
+      // Jailer 单机 App：openai 保持 openai（独立厂商），不再路由到聚合器。
+      expect(normalizeProvider('openai'), 'openai');
       expect(normalizeProvider('glm'), 'zai');
       expect(normalizeProvider('zhipu'), 'zai');
       expect(normalizeProvider('moonshot'), 'kimi-for-coding');

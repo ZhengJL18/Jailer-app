@@ -82,7 +82,6 @@ class _ChatScreenState extends State<ChatScreen> {
     super.initState();
     initConfig();
     registerFileTools();
-    registerMemoryTool();
     registerWebTools();
     registerTodoTool();
     registerSessionSearchTool();
@@ -109,27 +108,42 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 遍历整个文件系统导致卡死。
   /// 同时按「所有文件访问」权限决定是否允许访问公共目录。
   Future<void> _initCwd() async {
+    // 各子系统独立初始化：任一失败不拖垮其他。
+    final String dir;
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      rememberFileToolsCwd(dir.path);
-      await syncExternalAccessPermission();
-      // 初始化记忆存储（MEMORY.md/USER.md 在 App documents/memories 下）。
-      registerMemoryTool(baseDir: dir.path);
-      _memory = MemoryManager(store: memoryStore!);
-      // 初始化会话库（state.db 在 App documents 下）。
-      _sessionDb = SessionDB(dbPath: '${dir.path}/state.db');
-      await _sessionDb!.init();
-      sessionDb = _sessionDb;
-      _currentSessionId =
-          's${DateTime.now().millisecondsSinceEpoch}';
-      await _sessionDb!.createSession(_currentSessionId!, source: 'app');
-      // 初始化 skill 系统（skills/ 在 App documents 下）。
-      final skillsRoot = '${dir.path}/skills';
-      Directory(skillsRoot).createSync(recursive: true);
-      registerSkillTools(skillsRoot: skillsRoot);
+      dir = (await getApplicationDocumentsDirectory()).path;
     } catch (_) {
       configureFileTools(cwd: null);
+      return;
     }
+    rememberFileToolsCwd(dir);
+    try {
+      await syncExternalAccessPermission();
+    } catch (_) {}
+    // 文件工具 cwd。
+    try {
+      configureFileTools(cwd: dir);
+    } catch (_) {}
+    // 记忆存储。
+    try {
+      registerMemoryTool(baseDir: dir);
+      _memory = MemoryManager(store: memoryStore!);
+    } catch (_) {}
+    // 会话库。
+    try {
+      _sessionDb = SessionDB(dbPath: '$dir/state.db');
+      await _sessionDb!.init();
+      sessionDb = _sessionDb;
+      // 固定会话 id：跨重启恢复同一会话历史（不累积孤儿会话）。
+      _currentSessionId = 'main';
+      await _sessionDb!.createSession(_currentSessionId!, source: 'app');
+    } catch (_) {}
+    // skill 系统。
+    try {
+      final skillsRoot = '$dir/skills';
+      Directory(skillsRoot).createSync(recursive: true);
+      registerSkillTools(skillsRoot: skillsRoot);
+    } catch (_) {}
   }
 
   Future<void> _send() async {
@@ -158,7 +172,14 @@ class _ChatScreenState extends State<ChatScreen> {
       sessionId: _currentSessionId,
       systemPrompt: _systemPrompt(),
       toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: const ['file', 'web', 'memory', 'todo', 'skills'],
+        enabledToolsets: const [
+          'file',
+          'web',
+          'memory',
+          'todo',
+          'skills',
+          'session_search',
+        ],
         quietMode: true,
       ),
       onDelta: (delta) {
@@ -197,13 +218,20 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final result = await agent.runConversation(text);
-      if (result.finalResponse != null &&
+      // 只在完成时用 finalResponse 覆盖流式内容；预算耗尽/失败（completed=false）
+      // 时保留已流式的半截回答，不覆盖为用户看不到的错误文案。
+      if (result.completed &&
+          result.finalResponse != null &&
+          _messages.isNotEmpty &&
           _messages.last.role == 'assistant' &&
           _messages.last.text != result.finalResponse) {
         setState(() {
           _messages[_messages.length - 1] =
               _ChatMessage.assistant(result.finalResponse);
         });
+      } else if (!result.completed && result.finalResponse != null) {
+        // 预算耗尽：保留流式内容，追加提示。
+        _addAssistant(result.finalResponse!);
       }
     } catch (e) {
       _addAssistant('出错了：$e');

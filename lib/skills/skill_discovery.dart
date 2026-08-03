@@ -181,26 +181,37 @@ class SkillDiscovery {
   ///
   /// [name] 可以是 "category/name"、"name"、或文件路径。
   SkillMeta? findSkill(String name, {String? filePath}) {
-    // 1. file_path 优先（带穿越校验）。
+    // 1. file_path 优先：先找 skill 所在目录，再在 skill_dir 下解析文件。
     if (filePath != null) {
       if (_hasTraversal(filePath)) {
         return null;
       }
-      final abs = p.isAbsolute(filePath)
-          ? filePath
-          : p.join(skillsRoot, filePath);
+      // name 可能是 "category/name" 或 "name" 或绝对路径的 skill 目录。
+      final skill = _findByAnyName(name);
+      if (skill == null) {
+        return null;
+      }
+      final abs = p.join(skill.dir, filePath);
       if (File(abs).existsSync()) {
-        final dir = p.dirname(abs);
-        return _metaFromDir(dir, abs);
+        return SkillMeta(
+          name: skill.name,
+          description: skill.description,
+          category: skill.category,
+          dir: skill.dir,
+          path: abs, // 指向 file_path 对应的文件。
+        );
       }
       return null;
     }
-    // 2. 直接路径：category/name 或 name。
+    return _findByAnyName(name);
+  }
+
+  /// 按 name 找 skill（直接路径 + 目录名递归）。
+  SkillMeta? _findByAnyName(String name) {
     final direct = p.join(skillsRoot, name, 'SKILL.md');
     if (File(direct).existsSync()) {
       return _metaFromDir(p.dirname(direct), direct);
     }
-    // 3. 目录名递归匹配。
     for (final s in findAllSkills()) {
       if (s.name == name || p.basename(s.dir) == name) {
         return s;

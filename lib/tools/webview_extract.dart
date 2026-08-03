@@ -65,6 +65,8 @@ Future<WebviewExtractResult> _runHeadless(
   int charLimit,
 ) async {
   final completer = Completer<WebviewExtractResult>();
+  // 防二次 complete（重定向/多次 onLoadStop）。
+  var completed = false;
 
   final headless = HeadlessInAppWebView(
     initialUrlRequest: URLRequest(url: WebUri(url)),
@@ -90,7 +92,8 @@ Future<WebviewExtractResult> _runHeadless(
       }
     },
     onLoadStop: (controller, url) async {
-      // 提取正文。
+      // 只取第一次「有意义」内容（非空）；空内容（登录墙/跳转页）不立即定稿，
+      // 等后续 onLoadStop（真实页面加载完）再取。
       final jsResult = await controller.evaluateJavascript(source: extractJs);
       String? title;
       String? content;
@@ -107,16 +110,21 @@ Future<WebviewExtractResult> _runHeadless(
           }
         } catch (_) {}
       }
-      // 截断。
       var text = content ?? '';
+      if (text.trim().isEmpty && !completed) {
+        return; // 空内容，等待后续加载。
+      }
       if (text.length > charLimit) {
         text = text.substring(0, charLimit);
       }
-      completer.complete(WebviewExtractResult(
-        content: text,
-        success: text.isNotEmpty,
-        title: title,
-      ));
+      if (!completed) {
+        completed = true;
+        completer.complete(WebviewExtractResult(
+          content: text,
+          success: text.isNotEmpty,
+          title: title,
+        ));
+      }
     },
   );
 
