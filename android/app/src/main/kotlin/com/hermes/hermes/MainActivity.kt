@@ -34,17 +34,19 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun isExternalStorageManagerGranted(): Boolean {
-        // Android 11+ (API 30)：用 Environment.isExternalStorageManager()。
-        // 鸿蒙基于 AOSP 应支持；更低版本或异常时 fallback 到 WRITE_EXTERNAL_STORAGE。
+        // 用 appops 反映的运行时状态（鸿蒙上 MANAGE_EXTERNAL_STORAGE 的 permission
+        // 声明 granted=false，但 appops 是 allow，App 实际能访问 /sdcard）。
+        // Environment.isExternalStorageManager() 查的是运行时 appops，与鸿蒙实际
+        // 行为一致。不能用 checkSelfPermission —— 它在鸿蒙上恒 false。
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
                 Environment.isExternalStorageManager()
             } catch (e: Exception) {
-                checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                checkSelfPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE) ==
                     android.content.pm.PackageManager.PERMISSION_GRANTED
             }
         } else {
-            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            checkSelfPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
         }
     }

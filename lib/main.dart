@@ -129,12 +129,19 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 构建系统提示（含记忆 + skill 索引）。
   String _systemPrompt() {
+    final externalAllowed = fileToolsAllowExternal;
     var prompt = '你是 Hermes，一个运行在 Android App 沙盒里的 agent。'
-        '你可以调用工具操作 App 自己的文件空间（read_file / write_file / '
-        'patch / search_files），管理记忆（memory），上网（web_search / '
+        '你可以调用工具操作文件（read_file / write_file / patch / '
+        'search_files），管理记忆（memory），上网（web_search / '
         'web_extract），管理待办（todo），回顾会话（session_search），'
         '以及使用技能（skills_list / skill_view / skill_manage）。'
         '用中文回答。';
+    if (externalAllowed) {
+      prompt += '\n\n你已获准访问公共存储目录（/sdcard/Download、'
+          '/sdcard/Documents 等）。用户可能请你读取、搜索或编辑这些目录里的'
+          '文件（如课件、笔记、图片）。访问公共目录请用绝对路径，例如 '
+          '`/sdcard/Download/文件名`。';
+    }
     final skillBlock = buildSkillsSystemPrompt();
     if (skillBlock.isNotEmpty) {
       prompt = '$prompt\n\n$skillBlock';
