@@ -14,6 +14,7 @@ import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
 import 'tools/clarify_tool.dart';
+import 'tools/context_retriever.dart';
 import 'tools/cron_tools.dart';
 import 'tools/delegate_tool.dart';
 import 'tools/file_tools.dart';
@@ -243,13 +244,15 @@ class _ChatScreenState extends State<ChatScreen> {
         return summaryTurn.content ?? '';
       },
     );
+    // 工程检索：从历史消息召回与当前任务相关的片段，注入上下文（防污染）。
+    final retrieved = await _retrieveRelevantContext(task);
     _activeAgent = JailerAgent(
       llm: llm,
       memoryManager: _memory,
       sessionDb: _sessionDb,
       sessionId: _currentSessionId,
       contextCompressor: compressor,
-      systemPrompt: _systemPrompt(),
+      systemPrompt: _systemPrompt(contextBlock: formatContextBlock(retrieved)),
       toolDefinitionsProvider: () => getToolDefinitions(
         enabledToolsets: const [
           'file', 'web', 'memory', 'todo', 'skills', 'session_search',
@@ -330,6 +333,17 @@ class _ChatScreenState extends State<ChatScreen> {
       return result.finalResponse ?? '(子代理无输出)';
     } catch (e) {
       return '子任务失败：$e';
+    }
+  }
+
+  /// 从历史消息检索与任务相关的上下文片段（FTS5 词法，工程检索一期）。
+  Future<List<ContextHit>> _retrieveRelevantContext(String task) async {
+    final sdb = _sessionDb;
+    if (sdb == null) return [];
+    try {
+      return await retrieveRelevantContext(db: sdb, query: task, limit: 5);
+    } catch (_) {
+      return [];
     }
   }
 
@@ -420,8 +434,8 @@ class _ChatScreenState extends State<ChatScreen> {
     return answer ?? '';
   }
 
-  /// 构建系统提示（含记忆 + skill 索引）。
-  String _systemPrompt() {
+  /// 构建系统提示（含记忆 + skill 索引 + 工程检索上下文）。
+  String _systemPrompt({String contextBlock = ''}) {
     final externalAllowed = fileToolsAllowExternal;
     var prompt = '你是 Hermes，一个运行在 Android App 沙盒里的 agent。'
         '你可以调用工具操作文件（read_file / write_file / patch / '
@@ -434,6 +448,9 @@ class _ChatScreenState extends State<ChatScreen> {
           '/sdcard/Documents 等）。用户可能请你读取、搜索或编辑这些目录里的'
           '文件（如课件、笔记、图片）。访问公共目录请用绝对路径，例如 '
           '`/sdcard/Download/文件名`。';
+    }
+    if (contextBlock.isNotEmpty) {
+      prompt = '$prompt\n\n$contextBlock';
     }
     final skillBlock = buildSkillsSystemPrompt();
     if (skillBlock.isNotEmpty) {
