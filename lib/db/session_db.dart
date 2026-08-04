@@ -291,6 +291,7 @@ class SessionDB {
   Future<List<Map<String, dynamic>>> searchMessages(
     String query, {
     String? roleFilter,
+    String? sessionId,
     int limit = 20,
   }) async {
     // 尝试 FTS5。
@@ -306,6 +307,10 @@ class SessionDB {
         if (roleFilter != null && roleFilter.isNotEmpty) {
           final roles = roleFilter.split(',').map((r) => "'${r.trim()}'").join(',');
           sql += ' AND m.role IN ($roles)';
+        }
+        if (sessionId != null && sessionId.isNotEmpty) {
+          sql += ' AND m.session_id = ?';
+          args.add(sessionId);
         }
         sql += ' AND m.active = 1 ORDER BY m.id DESC LIMIT ?';
         args.add(limit);
@@ -324,6 +329,10 @@ class SessionDB {
     if (roleFilter != null && roleFilter.isNotEmpty) {
       final roles = roleFilter.split(',').map((r) => "'${r.trim()}'").join(',');
       sql += ' AND role IN ($roles)';
+    }
+    if (sessionId != null && sessionId.isNotEmpty) {
+      sql += ' AND session_id = ?';
+      args.add(sessionId);
     }
     sql += ' ORDER BY id DESC LIMIT ?';
     args.add(limit);

@@ -21,29 +21,39 @@ class ContextHit {
 
 /// 用 FTS5 从历史消息召回相关片段。
 ///
-/// [query] 当前用户问题；[limit] 召回条数。
+/// [query] 当前用户问题；[limit] 召回条数；[sessionId] 限定会话（默认全局）。
 /// 优先 role=user/assistant（跳过 tool 噪声），按相关度取最近消息。
+///
+/// 范围控制：整句查 1 次 + 至多 2 个关键词（各取 limit/2），避免召回过宽
+/// 引入无关历史。返回空列表 = 无匹配（调用方应正常继续，不中断）。
 Future<List<ContextHit>> retrieveRelevantContext({
   required SessionDB db,
   required String query,
+  String? sessionId,
   int limit = 6,
 }) async {
+  if (limit <= 0) {
+    return [];
+  }
   final queryWords = query.split(RegExp(r'[\s,，。！？!?]+'))
-      .where((w) => w.trim().isNotEmpty)
+      .where((w) => w.trim().isNotEmpty && w.length >= 2)
       .toList();
   if (queryWords.isEmpty) {
     return [];
   }
 
   final hits = <ContextHit>[];
-  // 用整句 + 关键词各查一次，合并去重。
+  // 整句 + 至多 2 个关键词，各查一半，合并去重。
   final seen = <String>{};
-  for (final q in [query, ...queryWords.take(3)]) {
+  final perQuery = (limit / 2).ceil().clamp(1, limit);
+  final queries = [query, ...queryWords.take(2)];
+  for (final q in queries) {
     try {
       final rows = await db.searchMessages(
         q,
         roleFilter: 'user,assistant',
-        limit: limit,
+        sessionId: sessionId,
+        limit: perQuery,
       );
       for (final r in rows) {
         final content = r['content'] as String? ?? '';
@@ -59,12 +69,13 @@ Future<List<ContextHit>> retrieveRelevantContext({
       }
     } catch (_) {}
   }
-  // 截断超长内容，限制总条数。
+  // 截断超长内容（带标记），限制总条数。
+  const maxLen = 200;
   final result = <ContextHit>[];
   for (final h in hits) {
     if (result.length >= limit) break;
-    final trimmed = h.content.length > 200
-        ? h.content.substring(0, 200)
+    final trimmed = h.content.length > maxLen
+        ? '${h.content.substring(0, maxLen)}…（截断）'
         : h.content;
     result.add(ContextHit(
       sessionId: h.sessionId,

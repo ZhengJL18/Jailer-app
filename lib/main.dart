@@ -174,10 +174,7 @@ class _ChatScreenState extends State<ChatScreen> {
           '可以用 read_file / search_files / git_status / git_diff 探索当前状态，'
           '然后输出一个清晰的执行计划：列出要做的步骤、每步做什么、'
           '涉及什么文件/命令。计划要具体、可执行。用中文。',
-      toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: const ['file', 'git'],
-        quietMode: true,
-      ),
+      toolDefinitionsProvider: () => _readOnlyTools(),
       maxIterations: 15,
     );
     try {
@@ -215,15 +212,18 @@ class _ChatScreenState extends State<ChatScreen> {
       _toolRunningIdx.clear();
     });
     if (plan != null) {
-      // 把计划加进对话，agent 执行时参考。
-      await _runTaskWithFullTools('$task\n\n按以下计划执行：\n$plan');
+      // 把计划加进对话，agent 执行时参考（跳过重复检索，计划已是上下文）。
+      await _runTaskWithFullTools(
+        '$task\n\n按以下计划执行：\n$plan',
+        skipRetrieval: true,
+      );
       return;
     }
     await _runTaskWithFullTools(task);
   }
 
   /// 用完整工具集执行任务（现有 _send 主体逻辑抽取）。
-  Future<void> _runTaskWithFullTools(String task) async {
+  Future<void> _runTaskWithFullTools(String task, {bool skipRetrieval = false}) async {
     final config = await JailerConfig.load();
     if (config == null) {
       _addAssistant('请先配置 AI');
@@ -247,7 +247,9 @@ class _ChatScreenState extends State<ChatScreen> {
       },
     );
     // 工程检索：从历史消息召回与当前任务相关的片段，注入上下文（防污染）。
-    final retrieved = await _retrieveRelevantContext(task);
+    // plan 执行时跳过（计划本身已是上下文，避免基于长拼接文本搜到无关内容）。
+    final retrieved =
+        skipRetrieval ? <ContextHit>[] : await _retrieveRelevantContext(task);
     _activeAgent = JailerAgent(
       llm: llm,
       memoryManager: _memory,
@@ -323,12 +325,17 @@ class _ChatScreenState extends State<ChatScreen> {
     final llm = OpenAiLlmClient(
       config: fastConfig ?? config.toLlmConfig(),
     );
+    // 子代理不继承 delegate 能力（防无限递归委派）。
+    final effectiveToolsets =
+        (toolsets ?? const ['file', 'web', 'git'])
+            .where((t) => t != 'delegate')
+            .toList();
     final subAgent = JailerAgent(
       llm: llm,
       systemPrompt: '你是 Hermes 的子代理。独立完成给定任务并简洁汇报结果。'
           '用中文。',
       toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: toolsets ?? const ['file', 'web', 'git'],
+        enabledToolsets: effectiveToolsets,
         quietMode: true,
       ),
       maxIterations: 20,
@@ -346,7 +353,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final sdb = _sessionDb;
     if (sdb == null) return [];
     try {
-      return await retrieveRelevantContext(db: sdb, query: task, limit: 5);
+      return await retrieveRelevantContext(
+        db: sdb,
+        query: task,
+        sessionId: _currentSessionId, // 限定当前会话，避免引用别的会话旧信息。
+        limit: 5,
+      );
     } catch (_) {
       return [];
     }
@@ -439,6 +451,22 @@ class _ChatScreenState extends State<ChatScreen> {
     return answer ?? '';
   }
 
+  /// 只读工具集（plan 模式用）：过滤掉写操作，防 plan 阶段误改文件。
+  List<Map<String, dynamic>> _readOnlyTools() {
+    const readOnly = {
+      'read_file', 'search_files', 'git_status', 'git_diff', 'git_log',
+      'git_branch', 'git_version',
+    };
+    final all = getToolDefinitions(
+      enabledToolsets: const ['file', 'git'],
+      quietMode: true,
+    );
+    return [
+      for (final t in all)
+        if (readOnly.contains((t['function'] as Map)['name'])) t,
+    ];
+  }
+
   /// 当前工作流（按 _workflowId，未知则回退通用）。
   AgentWorkflow get _currentWorkflow =>
       findWorkflow(_workflowId) ?? builtinWorkflows.last;
@@ -512,8 +540,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
     _addUser(text);
 
-    // Plan 模式：先让 LLM 出计划（只读探索），批准后再执行。
-    if (_planMode) {
+    // Plan 模式：UI 开关开启，或当前工作流要求先计划（planGate）。
+    final needPlan = _planMode || _currentWorkflow.planGate;
+    if (needPlan) {
       _pendingTask = text;
       await _generatePlan(text);
       return;
