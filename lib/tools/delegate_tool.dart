@@ -7,7 +7,12 @@ library;
 import 'registry.dart';
 
 /// ChatScreen 注册的子 agent 执行回调：给定任务，返回子 agent 的结果。
-Future<String> Function(String task, List<String>? toolsets)? delegateHandler;
+/// [depth] 当前代理层数（0 = 主代理）；子代理在 depth+1 层执行。
+Future<String> Function(String task, List<String>? toolsets, int depth)?
+    delegateHandler;
+
+/// 最大代理层数（4 层代理 = 3 层子代理）。
+const int maxAgentDepth = 3;
 
 /// delegate_task 工具 handler。
 Future<String> _handleDelegate(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) async {
@@ -20,8 +25,14 @@ Future<String> _handleDelegate(Map<String, dynamic> args, [Map<String, dynamic>?
     return toolError('delegate_task: missing task');
   }
   final toolsets = (args['toolsets'] as List?)?.whereType<String>().toList();
+  final depth = (args['_depth'] as int?) ?? 0;
+  // 层数上限：达到 maxAgentDepth 的子代理不能再委派。
+  if (depth >= maxAgentDepth) {
+    return toolError('delegate_task: 已达最大代理层数（3 层子代理），'
+        '请直接在子任务内完成，不要继续委派。');
+  }
   try {
-    return await handler(task, toolsets);
+    return await handler(task, toolsets, depth);
   } catch (e) {
     return toolError('delegate_task failed: $e');
   }

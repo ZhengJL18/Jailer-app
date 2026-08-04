@@ -221,6 +221,12 @@ Map<String, ToolsetDef> toolsetDefs = {
         'perspectives debate over rounds, then synthesize a conclusion',
     tools: ['moa_discuss'],
   ),
+  'company': ToolsetDef(
+    description:
+        'Company mode: delegate tasks to departments (code/research/office) '
+        'with specialized roles working in parallel',
+    tools: ['delegate_to_department'],
+  ),
   'cron': ToolsetDef(
     description: 'Recurring scheduled tasks that run while the app is open',
     tools: ['cron_create', 'cron_list', 'cron_delete'],

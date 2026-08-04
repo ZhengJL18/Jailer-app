@@ -80,6 +80,22 @@ const List<AgentWorkflow> builtinWorkflows = [
     autoDelegate: true,
     maxSteps: 100,
   ),
+  AgentWorkflow(
+    id: 'company',
+    name: '公司模式',
+    systemPrompt: '你是 Hermes 公司的 CEO。你手下有多个部门，每个部门由'
+        '专业角色组成。收到任务时：1) 判断任务性质，选择合适部门；'
+        '2) 用 delegate_to_department 把任务派给部门；3) 汇总部门结果给用户。'
+        '任务复杂时可拆分成多个子任务分派给不同部门，或让部门内的子代理'
+        '继续下探。部门列表：\n',
+    toolsets: [
+      'file', 'web', 'memory', 'todo', 'skills', 'session_search', 'git',
+      'company', 'moa', 'delegate', 'clarify', 'vision', 'cron',
+    ],
+    planGate: false,
+    autoDelegate: true,
+    maxSteps: 200,
+  ),
 ];
 
 /// 按 id 查找工作流。

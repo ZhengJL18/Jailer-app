@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
+import 'agent/company.dart';
 import 'agent/context_compressor.dart';
 import 'agent/workflow.dart';
 import 'config/jailer_config.dart';
@@ -16,6 +17,7 @@ import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
 import 'tools/clarify_tool.dart';
+import 'tools/company_tool.dart';
 import 'tools/context_retriever.dart';
 import 'tools/cron_tools.dart';
 import 'tools/delegate_tool.dart';
@@ -119,6 +121,8 @@ class _ChatScreenState extends State<ChatScreen> {
     delegateHandler = _runSubAgent;
     registerMoaTool();
     moaHandler = _runDiscussion;
+    registerCompanyTool();
+    departmentHandler = _runDepartment;
     registerCronTools();
     cronFireHandler = _fireCronJob;
     startCronScheduler();
@@ -319,7 +323,12 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// delegate 回调：子 agent 独立执行任务，返回结果摘要。
-  Future<String> _runSubAgent(String task, List<String>? toolsets) async {
+  /// [depth] 当前层数（0=主代理，1=一级子代理…）；最大 [maxAgentDepth]。
+  Future<String> _runSubAgent(
+    String task,
+    List<String>? toolsets,
+    int depth,
+  ) async {
     final config = await JailerConfig.load();
     if (config == null) {
       return '子任务未执行：AI 未配置';
@@ -329,26 +338,88 @@ class _ChatScreenState extends State<ChatScreen> {
     final llm = OpenAiLlmClient(
       config: fastConfig ?? config.toLlmConfig(),
     );
-    // 子代理不继承 delegate 能力（防无限递归委派）。
-    final effectiveToolsets =
-        (toolsets ?? const ['file', 'web', 'git'])
-            .where((t) => t != 'delegate')
-            .toList();
+    // 子代理可继续委派（下探），但深度由 delegate_tool 的 maxAgentDepth 控制。
+    final effectiveToolsets = toolsets ?? const ['file', 'web', 'git'];
     final subAgent = JailerAgent(
       llm: llm,
-      systemPrompt: '你是 Hermes 的子代理。独立完成给定任务并简洁汇报结果。'
-          '用中文。',
+      systemPrompt: '你是 Hermes 的第 $depth 层子代理。独立完成给定任务并'
+          '简洁汇报结果。任务太复杂时，可继续 delegate_task 派给更下层的'
+          '子代理。用中文。',
       toolDefinitionsProvider: () => getToolDefinitions(
         enabledToolsets: effectiveToolsets,
         quietMode: true,
       ),
       maxIterations: 20,
     );
+    // 子代理运行期间：其 delegate 调用下探到 depth+1（层数上限在
+    // delegate_tool._handleDelegate 检查）。用临时覆盖全局 handler 实现。
+    final prevHandler = delegateHandler;
+    delegateHandler = (t, ts, _) => _runSubAgent(t, ts, depth + 1);
     try {
       final result = await subAgent.runConversation(task);
       return result.finalResponse ?? '(子代理无输出)';
     } catch (e) {
       return '子任务失败：$e';
+    } finally {
+      delegateHandler = prevHandler;
+    }
+  }
+
+  /// 部门执行器（公司模式）：部门内各角色并行执行任务，汇总结果给 CEO。
+  ///
+  /// [department] 部门 id；[task] 任务；[depth] 当前层数。
+  /// 每个角色 = 一个子代理，带着角色人设独立跑任务，结果汇总。
+  Future<String> _runDepartment(String department, String task, int depth) async {
+    final dep = findDepartment(department);
+    if (dep == null) {
+      return '未知部门：$department';
+    }
+    final config = await JailerConfig.load();
+    if (config == null) {
+      return '部门任务未执行：AI 未配置';
+    }
+    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+
+    // 部门内各角色并行跑子任务（各带角色人设）。
+    final roleOutputs = await Future.wait(
+      dep.roles.map((role) async {
+        final roleAgent = JailerAgent(
+          llm: llm,
+          systemPrompt: '你是「${dep.name}」的$role。$role 负责在任务中贡献你的'
+              '专业能力。独立完成分配的工作，可调用工具。用中文。',
+          toolDefinitionsProvider: () => getToolDefinitions(
+            enabledToolsets: dep.toolsets,
+            quietMode: true,
+          ),
+          maxIterations: 20,
+        );
+        try {
+          final result = await roleAgent.runConversation(task);
+          return '「$role」：${result.finalResponse ?? '(无输出)'}';
+        } catch (e) {
+          return '「$role」：执行失败 $e';
+        }
+      }),
+    );
+
+    // 主模型（部门经理）汇总各角色输出。
+    try {
+      final summaryTurn = await llm.chatStream(messages: [
+        {
+          'role': 'system',
+          'content': '你是「${dep.name}」的经理。综合下面部门成员的输出，'
+              '给 CEO 一个简洁的最终结果：提炼关键结论，合并重复，标出分歧。'
+              '用中文。',
+        },
+        {
+          'role': 'user',
+          'content': '部门任务：$task\n\n成员输出：\n${roleOutputs.join('\n')}',
+        },
+      ]);
+      final summary = summaryTurn.content ?? '';
+      return summary.isNotEmpty ? summary : roleOutputs.join('\n');
+    } catch (e) {
+      return roleOutputs.join('\n');
     }
   }
 
@@ -444,7 +515,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     // 显示 cron 触发的提示。
     _addAssistant('⏰ [定时任务 ${job.id}] ${job.schedule}\n任务：${job.task}');
-    final result = await _runSubAgent(job.task, const ['file', 'web', 'git']);
+    final result = await _runSubAgent(job.task, const ['file', 'web', 'git'], 0);
     if (!mounted) return;
     _addAssistant('[定时任务完成]\n$result');
   }
@@ -552,6 +623,10 @@ class _ChatScreenState extends State<ChatScreen> {
       contextBlock: contextBlock,
       skillBlock: buildSkillsSystemPrompt(),
     );
+    // 公司模式：追加部门列表，让 CEO 知道有哪些团队可用。
+    if (_currentWorkflow.id == 'company') {
+      prompt += '${departmentsSummary()}\n\n根据任务性质选择部门并分派。';
+    }
     if (fileToolsAllowExternal) {
       prompt += '\n\n你已获准访问公共存储目录（/sdcard/Download、'
           '/sdcard/Documents 等）。用户可能请你读取、搜索或编辑这些目录里的'
