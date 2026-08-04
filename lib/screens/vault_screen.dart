@@ -48,6 +48,9 @@ class _VaultScreenState extends State<VaultScreen> {
         _tokenController.text = cfg.serverToken ?? '';
         _secretController.text = cfg.secret;
         _vaultId = cfg.vaultId;
+      } else {
+        // 默认用官方服务器地址。
+        _serverController.text = officialVaultUrl;
       }
       _loading = false;
     });
@@ -168,9 +171,9 @@ class _VaultScreenState extends State<VaultScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          '把数据加密备份到你自己的云服务器。'
-                          '备份用你的密钥 AES 加密，服务器只存密文，看不到内容。'
-                          '柜号（1~100）是服务器上的存储槽位。',
+                          'Hermes 官方云保险柜：备份用你的密钥 AES 加密，'
+                          '服务器只存密文，看不到内容。柜号（1~100）是存储槽位。'
+                          '服务器地址默认官方，可改成自建服务器。',
                           style: TextStyle(fontSize: 13, color: Colors.grey),
                         ),
                         const SizedBox(height: 12),

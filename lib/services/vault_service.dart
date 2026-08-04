@@ -15,6 +15,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Hermes 官方云保险柜地址。
+/// 填你的云服务器地址（如 https://vault.你的域名.com 或 http://IP:8741）。
+/// 用户可覆盖（支持自建服务器）。
+const String officialVaultUrl = 'https://YOUR-SERVER.com:8741';
+
 /// 保险柜配置（服务器 + 柜号 + 密钥）。
 class VaultConfig {
   final String serverUrl; // 如 https://your-server.com
