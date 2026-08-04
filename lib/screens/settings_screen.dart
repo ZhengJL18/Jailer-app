@@ -12,6 +12,7 @@ import 'department_screen.dart';
 import 'fast_model_screen.dart';
 import 'history_screen.dart';
 import 'skills_screen.dart';
+import 'vault_screen.dart';
 import 'vision_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -362,6 +363,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const DepartmentScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.shield_outlined),
+                    title: const Text('云端保险柜'),
+                    subtitle: const Text('加密备份到你的云服务器（存档式）'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const VaultScreen()),
                       );
                     },
                   ),

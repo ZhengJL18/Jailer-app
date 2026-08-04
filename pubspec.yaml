@@ -48,6 +48,7 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   git2dart: ^0.5.4
   git2dart_binaries: ^1.12.1
+  pointycastle: ^4.0.0
 
 dev_dependencies:
   flutter_test:
