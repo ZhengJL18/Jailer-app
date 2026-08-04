@@ -11,6 +11,7 @@ import '../services/storage_permission.dart';
 import 'department_screen.dart';
 import 'fast_model_screen.dart';
 import 'history_screen.dart';
+import 'memory_screen.dart';
 import 'skills_screen.dart';
 import 'vault_screen.dart';
 import 'vision_settings_screen.dart';
@@ -376,6 +377,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const VaultScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.sticky_note_2_outlined),
+                    title: const Text('记忆管理'),
+                    subtitle: const Text('查看/编辑 agent 的长期记忆'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const MemoryScreen()),
                       );
                     },
                   ),

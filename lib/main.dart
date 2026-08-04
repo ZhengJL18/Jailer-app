@@ -163,6 +163,25 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {});
   }
 
+  /// 新建会话：生成新 sessionId，清空当前对话。
+  Future<void> _newSession() async {
+    final sdb = _sessionDb;
+    if (sdb == null) return;
+    if (!mounted) return;
+    final newId = 's${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      await sdb.createSession(newId, source: 'app');
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _messages.clear();
+      _toolRunningIdx.clear();
+      _currentSessionId = newId;
+      _pendingPlan = null;
+      _pendingTask = null;
+    });
+  }
+
   /// Plan 模式：只读探索任务，生成计划并展示（不执行写操作）。
   Future<void> _generatePlan(String task) async {
     final config = await JailerConfig.load();
@@ -787,11 +806,31 @@ class _ChatScreenState extends State<ChatScreen> {
                             : Colors.grey,
                       ),
                       const SizedBox(width: 8),
-                      Text(w.name),
-                      if (_workflowId == w.id) ...[
-                        const SizedBox(width: 6),
-                        const Icon(Icons.check, size: 16, color: Colors.teal),
-                      ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Text(w.name),
+                                if (_workflowId == w.id) ...[
+                                  const SizedBox(width: 6),
+                                  const Icon(Icons.check,
+                                      size: 14, color: Colors.teal),
+                                ],
+                              ],
+                            ),
+                            Text(
+                              w.description,
+                              style: const TextStyle(
+                                  fontSize: 11, color: Colors.grey),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -809,6 +848,8 @@ class _ChatScreenState extends State<ChatScreen> {
             tooltip: '更多',
             onSelected: (v) {
               switch (v) {
+                case 'new_session':
+                  _newSession();
                 case 'plan':
                   setState(() => _planMode = !_planMode);
                 case 'github':
@@ -822,6 +863,17 @@ class _ChatScreenState extends State<ChatScreen> {
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: 'new_session',
+                child: Row(
+                  children: [
+                    Icon(Icons.add_comment, size: 18, color: Colors.grey),
+                    SizedBox(width: 8),
+                    Text('新建会话'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
               PopupMenuItem(
                 value: 'plan',
                 child: Row(

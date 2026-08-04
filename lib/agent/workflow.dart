@@ -6,6 +6,7 @@ library;
 class AgentWorkflow {
   final String id;
   final String name;
+  final String description; // 给用户看的简短说明。
   final String systemPrompt;
   final List<String> toolsets;
   final bool planGate; // 是否强制先计划（plan 模式）。
@@ -15,6 +16,7 @@ class AgentWorkflow {
   const AgentWorkflow({
     required this.id,
     required this.name,
+    required this.description,
     required this.systemPrompt,
     required this.toolsets,
     this.planGate = false,
@@ -49,6 +51,7 @@ const List<AgentWorkflow> builtinWorkflows = [
   AgentWorkflow(
     id: 'coding',
     name: '写代码',
+    description: '代码开发：先计划后执行，git 管理，可委派快模型',
     systemPrompt: '你是 Hermes 的编程助手。用 git 管理代码：先看 status/diff '
         '了解现状，patch 优先于整体重写，改完用 git_status/git_diff 自查。'
         '需要时下载依赖、跑测试。用中文回答。',
@@ -60,6 +63,7 @@ const List<AgentWorkflow> builtinWorkflows = [
   AgentWorkflow(
     id: 'research',
     name: '研究',
+    description: '调研分析：搜索提取总结，不写代码',
     systemPrompt: '你是 Hermes 的研究助手。搜索→提取→总结，用 web_search 找'
         '资料、web_extract 抓全文，关键信息存入 memory。不写代码。用中文。',
     toolsets: ['web', 'memory', 'todo', 'clarify', 'delegate', 'moa'],
@@ -70,6 +74,7 @@ const List<AgentWorkflow> builtinWorkflows = [
   AgentWorkflow(
     id: 'daily',
     name: '通用助手',
+    description: '全能助手：文件/上网/git/记忆/技能都用',
     systemPrompt: '你是 Hermes，一个运行在 Android 上的全能 agent。'
         '文件、上网、git、记忆、技能都用得上。用中文回答。',
     toolsets: [
@@ -83,6 +88,7 @@ const List<AgentWorkflow> builtinWorkflows = [
   AgentWorkflow(
     id: 'company',
     name: '公司模式',
+    description: 'CEO 调度部门：多角色分工讨论处理复杂任务',
     systemPrompt: '你是 Hermes 公司的 CEO。你手下有多个部门，每个部门由'
         '专业角色组成。收到任务时：1) 判断任务性质，选择合适部门；'
         '2) 用 delegate_to_department 把任务派给部门；3) 汇总部门结果给用户。'

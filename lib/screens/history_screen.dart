@@ -19,11 +19,52 @@ class HistoryScreen extends StatefulWidget {
 class _HistoryScreenState extends State<HistoryScreen> {
   List<Map<String, dynamic>> _sessions = [];
   bool _loading = true;
+  final _searchController = TextEditingController();
+  // 搜索命中的会话 id → 匹配片段（空 = 未搜索）。
+  Map<String, List<String>>? _searchHits;
+  bool _searching = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// 搜索会话内容。
+  Future<void> _search(String query) async {
+    final sdb = sessionDb;
+    if (sdb == null) return;
+    final q = query.trim();
+    if (q.isEmpty) {
+      setState(() => _searchHits = null);
+      return;
+    }
+    setState(() => _searching = true);
+    try {
+      final rows = await sdb.searchMessages(q, roleFilter: 'user,assistant', limit: 30);
+      final hits = <String, List<String>>{};
+      for (final r in rows) {
+        final sid = r['session_id'] as String? ?? '';
+        final content = r['content'] as String? ?? '';
+        if (sid.isEmpty || content.isEmpty) continue;
+        final clipped = content.length > 60 ? '${content.substring(0, 60)}…' : content;
+        hits.putIfAbsent(sid, () => []).add(clipped);
+      }
+      if (!mounted) return;
+      setState(() {
+        _searchHits = hits;
+        _searching = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _searching = false);
+    }
   }
 
   Future<void> _load() async {
@@ -128,39 +169,77 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('对话历史')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _sessions.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.forum_outlined, size: 56, color: Colors.grey),
-                      SizedBox(height: 12),
-                      Text('暂无历史会话', style: TextStyle(color: Colors.grey)),
-                    ],
-                  ),
-                )
-              : ListView.separated(
-                  itemCount: _sessions.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final s = _sessions[i];
-                    final id = s['id'] as String? ?? '';
-                    final count = s['message_count'] as int? ?? 0;
-                    final ts = s['started_at'] as num?;
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                        child: const Icon(Icons.chat_bubble_outline, size: 20),
-                      ),
-                      title: Text(
-                        _sessionTitle(s),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: Text('${_formatTime(ts?.toDouble())} · $count 条消息'),
-                      isThreeLine: false,
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: '搜索会话内容…',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                suffixIcon: _searching
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : _searchController.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchHits = null);
+                            },
+                          )
+                        : null,
+              ),
+              onChanged: _search,
+            ),
+          ),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _searchHits != null
+                    ? _buildSearchResults()
+                    : _sessions.isEmpty
+                        ? const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.forum_outlined, size: 56, color: Colors.grey),
+                                SizedBox(height: 12),
+                                Text('暂无历史会话', style: TextStyle(color: Colors.grey)),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            itemCount: _sessions.length,
+                            separatorBuilder: (_, _) => const Divider(height: 1),
+                            itemBuilder: (context, i) {
+                              final s = _sessions[i];
+                              final id = s['id'] as String? ?? '';
+                              final count = s['message_count'] as int? ?? 0;
+                              final ts = s['started_at'] as num?;
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                                  child: const Icon(Icons.chat_bubble_outline, size: 20),
+                                ),
+                                title: Text(
+                                  _sessionTitle(s),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text('${_formatTime(ts?.toDouble())} · $count 条消息'),
+                                isThreeLine: false,
                       trailing: PopupMenuButton<String>(
                         onSelected: (v) {
                           if (v == 'continue') _continueChat(id);
@@ -191,6 +270,53 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     );
                   },
                 ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// 搜索结果列表（命中会话 + 匹配片段）。
+  Widget _buildSearchResults() {
+    final hits = _searchHits ?? {};
+    if (hits.isEmpty) {
+      return const Center(
+        child: Text('没有找到匹配的会话', style: TextStyle(color: Colors.grey)),
+      );
+    }
+    // 按 _sessions 顺序显示命中会话。
+    final matched = _sessions.where((s) => hits.containsKey(s['id'])).toList();
+    return ListView.separated(
+      itemCount: matched.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (context, i) {
+        final s = matched[i];
+        final id = s['id'] as String? ?? '';
+        final ts = s['started_at'] as num?;
+        final snippets = hits[id] ?? [];
+        return ListTile(
+          leading: CircleAvatar(
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            child: const Icon(Icons.search, size: 18),
+          ),
+          title: Text(_sessionTitle(s), maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_formatTime(ts?.toDouble())),
+              if (snippets.isNotEmpty)
+                Text(
+                  snippets.take(2).join(' / '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: Colors.teal),
+                ),
+            ],
+          ),
+          isThreeLine: snippets.isNotEmpty,
+          onTap: () => _viewSession(id),
+        );
+      },
     );
   }
 }
