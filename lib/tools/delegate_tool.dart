@@ -14,6 +14,10 @@ Future<String> Function(String task, List<String>? toolsets, int depth)?
 /// 最大代理层数（4 层代理 = 3 层子代理）。
 const int maxAgentDepth = 3;
 
+/// 当前正在执行的代理层数（串行模型下由子代理运行前设置）。
+/// 不靠 LLM 传参（LLM 不会传内部字段），由 _runSubAgent/_runDepartment 维护。
+int currentAgentDepth = 0;
+
 /// delegate_task 工具 handler。
 Future<String> _handleDelegate(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) async {
   final handler = delegateHandler;
@@ -25,7 +29,7 @@ Future<String> _handleDelegate(Map<String, dynamic> args, [Map<String, dynamic>?
     return toolError('delegate_task: missing task');
   }
   final toolsets = (args['toolsets'] as List?)?.whereType<String>().toList();
-  final depth = (args['_depth'] as int?) ?? 0;
+  final depth = currentAgentDepth;
   // 层数上限：达到 maxAgentDepth 的子代理不能再委派。
   if (depth >= maxAgentDepth) {
     return toolError('delegate_task: 已达最大代理层数（3 层子代理），'

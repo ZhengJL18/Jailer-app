@@ -338,8 +338,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final llm = OpenAiLlmClient(
       config: fastConfig ?? config.toLlmConfig(),
     );
-    // 子代理可继续委派（下探），但深度由 delegate_tool 的 maxAgentDepth 控制。
-    final effectiveToolsets = toolsets ?? const ['file', 'web', 'git'];
+    // 子代理可继续委派（下探），深度由 currentAgentDepth 维护（串行安全）。
+    // 过滤 company（子代理不派部门，防部门递归）。
+    final effectiveToolsets =
+        (toolsets ?? const ['file', 'web', 'git'])
+            .where((t) => t != 'company')
+            .toList();
     final subAgent = JailerAgent(
       llm: llm,
       systemPrompt: '你是 Hermes 的第 $depth 层子代理。独立完成给定任务并'
@@ -351,17 +355,17 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       maxIterations: 20,
     );
-    // 子代理运行期间：其 delegate 调用下探到 depth+1（层数上限在
-    // delegate_tool._handleDelegate 检查）。用临时覆盖全局 handler 实现。
-    final prevHandler = delegateHandler;
-    delegateHandler = (t, ts, _) => _runSubAgent(t, ts, depth + 1);
+    // 子代理运行期间：currentAgentDepth = depth + 1（本层子代理）。
+    // 它的 delegate 工具读 currentAgentDepth 作深度，超限则被 _handleDelegate 拦。
+    final prevDepth = currentAgentDepth;
+    currentAgentDepth = depth + 1;
     try {
       final result = await subAgent.runConversation(task);
       return result.finalResponse ?? '(子代理无输出)';
     } catch (e) {
       return '子任务失败：$e';
     } finally {
-      delegateHandler = prevHandler;
+      currentAgentDepth = prevDepth;
     }
   }
 
@@ -403,11 +407,9 @@ class _ChatScreenState extends State<ChatScreen> {
       discussionBlock = opinions.join('\n');
     }
 
-    // 第 2 步：各角色带着讨论结果分工执行（角色子代理可用工具，depth+1 下探）。
-    final prevDept = departmentHandler;
-    final prevDelegate = delegateHandler;
-    departmentHandler = (d, t, _) => _runDepartment(d, t, depth + 1);
-    delegateHandler = (t, ts, _) => _runSubAgent(t, ts, depth + 1);
+    // 第 2 步：各角色带着讨论结果分工执行（角色子代理可用工具，可下探）。
+    // 角色子代理并行跑：各自设 currentAgentDepth = depth（下探时 depth+1）。
+    final prevDepth = currentAgentDepth;
     final roleOutputs = await Future.wait(
       dep.roles.map((role) async {
         final roleAgent = JailerAgent(
@@ -415,11 +417,15 @@ class _ChatScreenState extends State<ChatScreen> {
           systemPrompt: '你是「${dep.name}」的$role。参考团队讨论，完成你的'
               '分工工作。可调用工具。用中文。',
           toolDefinitionsProvider: () => getToolDefinitions(
-            enabledToolsets: dep.toolsets,
+            // 角色不再派部门（防部门递归），但可 delegate 子任务/讨论。
+            enabledToolsets: dep.toolsets
+                .where((t) => t != 'company')
+                .toList(),
             quietMode: true,
           ),
           maxIterations: 20,
         );
+        currentAgentDepth = depth + 1;
         try {
           final result = await roleAgent.runConversation(
             '$task\n\n团队讨论：\n$discussionBlock',
@@ -430,8 +436,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       }),
     );
-    departmentHandler = prevDept;
-    delegateHandler = prevDelegate;
+    currentAgentDepth = prevDepth;
 
     // 第 3 步：主模型（部门经理）汇总各角色输出给 CEO。
     try {
@@ -773,7 +778,9 @@ class _ChatScreenState extends State<ChatScreen> {
                             ? Icons.code
                             : w.id == 'research'
                                 ? Icons.search
-                                : Icons.home,
+                                : w.id == 'company'
+                                    ? Icons.apartment
+                                    : Icons.home,
                         size: 18,
                         color: _workflowId == w.id
                             ? Colors.teal

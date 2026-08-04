@@ -5,6 +5,7 @@
 library;
 
 import '../agent/company.dart';
+import 'delegate_tool.dart' show currentAgentDepth;
 import 'registry.dart';
 
 /// ChatScreen 注册的部门执行器：给定部门+任务，部门内角色分工执行。
@@ -29,7 +30,7 @@ Future<String> _handleDepartment(Map<String, dynamic> args, [Map<String, dynamic
     return toolError('delegate_to_department: 未知部门 "$department"。'
         '可用：${activeDepartments.map((d) => d.id).join(', ')}');
   }
-  final depth = (args['_depth'] as int?) ?? 0;
+  final depth = currentAgentDepth;
   try {
     return await handler(department, task, depth);
   } catch (e) {
