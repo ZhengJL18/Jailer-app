@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
@@ -85,9 +86,15 @@ class _ChatScreenState extends State<ChatScreen> {
   // 工具名 → 当前 running 卡片的消息索引（done 时更新而非新增）。
   final Map<String, int> _toolRunningIdx = {};
   bool _running = false;
+  JailerAgent? _activeAgent;
   MemoryManager? _memory;
   SessionDB? _sessionDb;
   String? _currentSessionId;
+
+  /// 停止当前生成（ESC / 停止按钮）。
+  void _stop() {
+    _activeAgent?.cancel();
+  }
 
   @override
   void initState() {
@@ -352,7 +359,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return summaryTurn.content ?? '';
       },
     );
-    final agent = JailerAgent(
+    _activeAgent = JailerAgent(
       llm: llm,
       memoryManager: _memory,
       sessionDb: _sessionDb,
@@ -409,7 +416,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
 
     try {
-      final result = await agent.runConversation(text);
+      final result = await _activeAgent!.runConversation(text);
       // 只在完成时用 finalResponse 覆盖流式内容；预算耗尽/失败（completed=false）
       // 时保留已流式的半截回答，不覆盖为用户看不到的错误文案。
       if (result.completed &&
@@ -428,6 +435,7 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) {
       _addAssistant('出错了：$e');
     } finally {
+      _activeAgent = null;
       setState(() => _running = false);
     }
   }
@@ -442,7 +450,14 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    // ESC = 停止当前生成。
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): _stop,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
       appBar: AppBar(
         title: const Text('Hermes'),
         actions: [
@@ -502,14 +517,19 @@ class _ChatScreenState extends State<ChatScreen> {
                   ),
                   const SizedBox(width: 8),
                   IconButton.filled(
-                    icon: const Icon(Icons.send),
-                    onPressed: _running ? null : _send,
+                    icon: _running
+                        ? const Icon(Icons.stop)
+                        : const Icon(Icons.send),
+                    onPressed: _running ? _stop : _send,
+                    tooltip: _running ? '停止生成' : '发送',
                   ),
                 ],
               ),
             ),
           ),
         ],
+        ),
+      ),
       ),
     );
   }

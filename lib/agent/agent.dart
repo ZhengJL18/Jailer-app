@@ -63,6 +63,13 @@ class JailerAgent {
   /// 迭代预算。
   final IterationBudget iterationBudget;
 
+  /// 取消标志：UI 调 [cancel] 后，循环在下一个检查点停止并返回已流式内容。
+  bool _cancelled = false;
+  bool get isCancelled => _cancelled;
+
+  /// 请求取消当前对话。
+  void cancel() => _cancelled = true;
+
   /// 流式文本回调（UI 打字）。
   final void Function(String delta)? onDelta;
 
@@ -149,7 +156,9 @@ class JailerAgent {
     String? finalResponse;
     var failed = false;
 
-    while (apiCallCount < maxIterations && iterationBudget.remaining > 0) {
+    while (apiCallCount < maxIterations &&
+        iterationBudget.remaining > 0 &&
+        !_cancelled) {
       apiCallCount++;
 
       // 消耗迭代预算。
@@ -192,6 +201,16 @@ class JailerAgent {
           turn = result;
           break;
         } catch (e) {
+          // 取消时不重试，直接返回已流式内容。
+          if (_cancelled) {
+            return ConversationResult(
+              finalResponse: null,
+              messages: messages,
+              apiCalls: apiCallCount,
+              completed: false,
+              error: 'cancelled',
+            );
+          }
           // 分类错误，决定是否重试。
           final classified = classifyApiError(e);
           lastError = e.toString();
@@ -236,6 +255,9 @@ class JailerAgent {
 
       // ── 有 tool_calls → 执行并回填 ──
       if (turn.hasToolCalls) {
+        if (_cancelled) {
+          break;
+        }
         for (var ti = 0; ti < turn.toolCalls.length; ti++) {
           final tc = turn.toolCalls[ti];
           Map<String, dynamic> args;
@@ -283,6 +305,14 @@ class JailerAgent {
 
     // 预算耗尽但未完成。
     if (finalResponse == null && !failed) {
+      if (_cancelled) {
+        return ConversationResult(
+          finalResponse: '（已停止生成）',
+          messages: messages,
+          apiCalls: apiCallCount,
+          completed: false,
+        );
+      }
       return ConversationResult(
         finalResponse: 'Iteration budget exhausted (${iterationBudget.used}/'
             '${iterationBudget.maxTotal} iterations used)',

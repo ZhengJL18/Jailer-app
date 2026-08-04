@@ -81,8 +81,8 @@ class ToolsetDef {
 /// 核心工具集定义（对应 Python TOOLSETS dict）。
 Map<String, ToolsetDef> toolsetDefs = {
   'web': ToolsetDef(
-    description: 'Web research and content extraction tools',
-    tools: ['web_search', 'web_extract'],
+    description: 'Web research, content extraction, and file download tools',
+    tools: ['web_search', 'web_extract', 'web_download'],
   ),
   'search': ToolsetDef(
     description: 'Web search only (no content extraction/scraping)',

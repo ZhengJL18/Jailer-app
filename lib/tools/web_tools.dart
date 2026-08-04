@@ -13,6 +13,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
@@ -190,6 +191,59 @@ Future<String> webSearchTool(String query, {int limit = 5}) async {
 
 /// 可注入的 http client（测试用；默认全局）。
 http.Client webHttpClient = http.Client();
+
+/// web_download 工具：下载 URL 的二进制文件到本地。
+///
+/// [url] 远程文件 URL；[path] 目标保存路径（绝对或相对 cwd）。
+/// 返回保存后的绝对路径和字节数。
+Future<String> webDownloadTool({
+  required String url,
+  required String path,
+  http.Client? client,
+}) async {
+  final httpClient = client ?? webHttpClient;
+  try {
+    final uri = Uri.parse(url);
+    if (uri.scheme != 'http' && uri.scheme != 'https') {
+      return toolError("web_download: unsupported scheme '${uri.scheme}'");
+    }
+    // 下载（流式写文件，避免大文件占内存）。
+    final request = http.Request('GET', uri);
+    final resp = await httpClient.send(request).timeout(const Duration(seconds: 30));
+    if (resp.statusCode != 200) {
+      return toolError('web_download: HTTP ${resp.statusCode}');
+    }
+    final file = File(path);
+    file.parent.createSync(recursive: true);
+    final sink = file.openWrite();
+    var total = 0;
+    await for (final chunk in resp.stream) {
+      sink.add(chunk);
+      total += chunk.length;
+    }
+    await sink.flush();
+    await sink.close();
+    return 'Downloaded ${file.absolute.path} ($total bytes)';
+  } catch (e) {
+    return toolError('web_download: $e');
+  }
+}
+
+const Map<String, dynamic> webDownloadSchema = {
+  'name': 'web_download',
+  'description':
+      'Download a file (including binary) from a URL to local disk. '
+      'Use for packages, binaries, images, archives. Returns the saved path '
+      'and byte size. The path may be absolute or relative to the working dir.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'url': {'type': 'string', 'description': 'URL to download'},
+      'path': {'type': 'string', 'description': 'Local save path'},
+    },
+    'required': ['url', 'path'],
+  },
+};
 
 /// 私域/需渲染平台（用 WebView 无头抓取）。
 const Set<String> _webviewHosts = {
@@ -466,5 +520,18 @@ void registerWebTools() {
     },
     checkFn: () => true,
     emoji: '📄',
+  );
+  registry.register(
+    name: 'web_download',
+    toolset: 'web',
+    schema: webDownloadSchema,
+    handler: (args, [kwargs]) async {
+      return await webDownloadTool(
+        url: args['url'] as String? ?? '',
+        path: args['path'] as String? ?? '',
+      );
+    },
+    checkFn: () => true,
+    emoji: '⬇️',
   );
 }
