@@ -765,7 +765,7 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           // 工作流选择器。
           PopupMenuButton<String>(
-            tooltip: '工作流',
+            tooltip: '工作流：${_currentWorkflow.name}',
             onSelected: (id) => setState(() => _workflowId = id),
             itemBuilder: (_) => [
               for (final w in builtinWorkflows)
@@ -797,43 +797,69 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
             ],
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              child: Row(
-                children: [
-                  Icon(Icons.tune, size: 16, color: _currentWorkflow.id == 'coding' ? Colors.teal : Colors.grey),
-                  const SizedBox(width: 2),
-                  Text(_currentWorkflow.name,
-                      style: const TextStyle(fontSize: 12)),
-                ],
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Icon(Icons.tune, size: 20,
+                  color: _currentWorkflow.id == 'coding'
+                      ? Colors.teal
+                      : Colors.grey),
             ),
           ),
-          // Plan 模式切换（Claude Code 式：先计划后执行）。
-          TextButton.icon(
-            onPressed: () => setState(() => _planMode = !_planMode),
-            icon: Icon(_planMode ? Icons.check_circle : Icons.rule,
-                color: _planMode ? Colors.teal : Colors.grey, size: 18),
-            label: Text(_planMode ? '计划' : '执行',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: _planMode ? Colors.teal : Colors.grey)),
-          ),
-          IconButton(
-            icon: const Icon(Icons.code),
-            tooltip: 'GitHub',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const GitHubScreen()),
-              );
+          // 更多菜单：计划/GitHub/设置（收纳二级入口）。
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            onSelected: (v) {
+              switch (v) {
+                case 'plan':
+                  setState(() => _planMode = !_planMode);
+                case 'github':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const GitHubScreen()),
+                  );
+                case 'settings':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  );
+              }
             },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
-            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'plan',
+                child: Row(
+                  children: [
+                    Icon(_planMode ? Icons.check_circle : Icons.rule,
+                        size: 18,
+                        color: _planMode ? Colors.teal : Colors.grey),
+                    const SizedBox(width: 8),
+                    Text(_planMode ? '计划模式（开）' : '计划模式（关）'),
+                  ],
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: 'github',
+                child: Row(
+                  children: [
+                    Icon(Icons.code, size: 18, color: Colors.grey),
+                    SizedBox(width: 8),
+                    Text('GitHub'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'settings',
+                child: Row(
+                  children: [
+                    Icon(Icons.settings, size: 18, color: Colors.grey),
+                    SizedBox(width: 8),
+                    Text('设置'),
+                  ],
+                ),
+              ),
+            ],
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8),
+              child: Icon(Icons.more_vert),
+            ),
           ),
         ],
       ),
