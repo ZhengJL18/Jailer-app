@@ -16,9 +16,13 @@ import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Hermes 官方云保险柜地址。
-/// 填你的云服务器地址（如 https://vault.你的域名.com 或 http://IP:8741）。
+/// nginx 反代到 8741，App 直接走 80 端口（无需安全组放行 8741）。
 /// 用户可覆盖（支持自建服务器）。
-const String officialVaultUrl = 'https://YOUR-SERVER.com:8741';
+const String officialVaultUrl = 'http://43.139.179.58';
+
+/// 官方服务器的管理 token（App 内置，官方服务器有效）。
+/// 用户配置 serverToken 时优先用用户的；未配置且连官方服务器时用此 token。
+const String officialVaultToken = '8abcf78d83529f4751718168f2dcabcd';
 
 /// 保险柜配置（服务器 + 柜号 + 密钥）。
 class VaultConfig {
@@ -177,17 +181,30 @@ Uint8List _deriveKey(String secret, Uint8List salt) {
   return pbkdf2.process(utf8.encode(secret));
 }
 
+/// 有效 token：用户配置优先，连官方服务器时用内置官方 token。
+String? _effectiveToken(VaultConfig cfg) {
+  if (cfg.serverToken != null && cfg.serverToken!.isNotEmpty) {
+    return cfg.serverToken;
+  }
+  if (cfg.serverUrl == officialVaultUrl) {
+    return officialVaultToken;
+  }
+  return null;
+}
+
 /// 上传备份（覆盖柜号对应数据）。
 Future<void> uploadBackup(VaultConfig cfg, Uint8List encrypted) async {
   final uri = Uri.parse('${cfg.serverUrl}/vault/${cfg.vaultId}');
+  final token = _effectiveToken(cfg);
   final resp = await http
       .put(
         uri,
         headers: {
           'Content-Type': 'application/octet-stream',
-          if (cfg.serverToken != null) 'X-Auth-Token': cfg.serverToken!,
+          'X-Auth-Token': ?token,
         },
         body: encrypted,
+
       )
       .timeout(const Duration(seconds: 30));
   if (resp.statusCode != 200) {
@@ -198,11 +215,12 @@ Future<void> uploadBackup(VaultConfig cfg, Uint8List encrypted) async {
 /// 下载备份（读取柜号对应密文）。
 Future<Uint8List> downloadBackup(VaultConfig cfg) async {
   final uri = Uri.parse('${cfg.serverUrl}/vault/${cfg.vaultId}');
+  final token = _effectiveToken(cfg);
   final resp = await http
       .get(
         uri,
         headers: {
-          if (cfg.serverToken != null) 'X-Auth-Token': cfg.serverToken!,
+          'X-Auth-Token': ?token,
         },
       )
       .timeout(const Duration(seconds: 30));
