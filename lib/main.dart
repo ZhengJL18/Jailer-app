@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -22,6 +23,7 @@ import 'tools/file_tools.dart';
 import 'tools/git_tools.dart';
 import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
+import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
@@ -115,6 +117,8 @@ class _ChatScreenState extends State<ChatScreen> {
     clarifyHandler = _showClarifyDialog;
     registerDelegateTool();
     delegateHandler = _runSubAgent;
+    registerMoaTool();
+    moaHandler = _runDiscussion;
     registerCronTools();
     cronFireHandler = _fireCronJob;
     startCronScheduler();
@@ -345,6 +349,77 @@ class _ChatScreenState extends State<ChatScreen> {
       return result.finalResponse ?? '(子代理无输出)';
     } catch (e) {
       return '子任务失败：$e';
+    }
+  }
+
+  /// 多子代理真对话（Kimi 式）：各视角子代理逐轮并行讨论，主模型综合。
+  ///
+  /// [topic] 讨论主题；[rounds] 轮数（默认2，上限4）。
+  /// 每轮所有子代理并行发言（看到上轮彼此内容），N 轮后主模型综合。
+  Future<String> _runDiscussion(String topic, int rounds) async {
+    final config = await JailerConfig.load();
+    if (config == null) {
+      return '讨论未执行：AI 未配置';
+    }
+    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+
+    // 各子代理视角人设。
+    const perspectives = [
+      ('架构', '你是一位资深架构师，关注系统结构、模块划分、可扩展性和维护性。'),
+      ('性能', '你是一位性能优化专家，关注效率、资源占用、瓶颈和权衡。'),
+      ('严谨', '你是一位批判性审查者，关注边界情况、错误处理、风险和遗漏。'),
+    ];
+
+    // 共享讨论记录（每轮追加所有人的发言）。
+    final transcript = <String>[];
+    final roundsClamped = rounds.clamp(1, 4);
+
+    for (var r = 1; r <= roundsClamped; r++) {
+      // 每轮并行：所有子代理看到上轮记录，各自回应。
+      final roundOutputs = await Future.wait(
+        perspectives.map((p) async {
+          final system = '你是讨论参与者「${p.$1}」。${p.$2}\n'
+              '围绕主题给出你的专业见解。讨论规则：观点要具体、可反驳、'
+              '能补充或修正他人的意见。用中文。';
+          final messages = <Map<String, dynamic>>[
+            {'role': 'system', 'content': system},
+            {'role': 'user', 'content': '主题：$topic\n\n讨论记录：\n'
+                '${transcript.isEmpty ? '(这是第一轮，请给出你的初始见解)' : transcript.join('\n')}'},
+          ];
+          try {
+            final turn = await llm.chatStream(messages: messages);
+            return (p.$1, turn.content ?? '(无发言)');
+          } catch (e) {
+            return (p.$1, '(发言失败：$e)');
+          }
+        }),
+      );
+
+      // 把本轮发言追加到共享记录。
+      for (final (name, text) in roundOutputs) {
+        transcript.add('「$name」：$text');
+      }
+    }
+
+    // 主模型综合所有讨论给最终结论。
+    try {
+      final finalTurn = await llm.chatStream(messages: [
+        {
+          'role': 'system',
+          'content': '你是一位讨论主持人。综合下面所有专家的讨论，给出一个'
+              '清晰的最终结论：总结共识、点明分歧、给出你的判断。用中文。',
+        },
+        {
+          'role': 'user',
+          'content': '主题：$topic\n\n完整讨论记录：\n${transcript.join('\n')}',
+        },
+      ]);
+      final summary = finalTurn.content ?? '';
+      return summary.isNotEmpty
+          ? summary
+          : '讨论完成，但综合失败。\n\n${transcript.join('\n')}';
+    } catch (e) {
+      return '讨论完成，但综合失败：$e\n\n${transcript.join('\n')}';
     }
   }
 

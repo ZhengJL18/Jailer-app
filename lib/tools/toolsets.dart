@@ -215,6 +215,12 @@ Map<String, ToolsetDef> toolsetDefs = {
     description: 'Delegate a sub-task to an independent sub-agent',
     tools: ['delegate_task'],
   ),
+  'moa': ToolsetDef(
+    description:
+        'Multi-agent discussion (Kimi-style): sub-agents with different '
+        'perspectives debate over rounds, then synthesize a conclusion',
+    tools: ['moa_discuss'],
+  ),
   'cron': ToolsetDef(
     description: 'Recurring scheduled tasks that run while the app is open',
     tools: ['cron_create', 'cron_list', 'cron_delete'],

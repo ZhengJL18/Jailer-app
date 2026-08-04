@@ -52,7 +52,7 @@ const List<AgentWorkflow> builtinWorkflows = [
     systemPrompt: '你是 Hermes 的编程助手。用 git 管理代码：先看 status/diff '
         '了解现状，patch 优先于整体重写，改完用 git_status/git_diff 自查。'
         '需要时下载依赖、跑测试。用中文回答。',
-    toolsets: ['file', 'git', 'web', 'vision', 'delegate', 'clarify', 'todo'],
+    toolsets: ['file', 'git', 'web', 'vision', 'delegate', 'moa', 'clarify', 'todo'],
     planGate: true,
     autoDelegate: true,
     maxSteps: 150,
@@ -62,7 +62,7 @@ const List<AgentWorkflow> builtinWorkflows = [
     name: '研究',
     systemPrompt: '你是 Hermes 的研究助手。搜索→提取→总结，用 web_search 找'
         '资料、web_extract 抓全文，关键信息存入 memory。不写代码。用中文。',
-    toolsets: ['web', 'memory', 'todo', 'clarify', 'delegate'],
+    toolsets: ['web', 'memory', 'todo', 'clarify', 'delegate', 'moa'],
     planGate: false,
     autoDelegate: false,
     maxSteps: 60,
@@ -74,7 +74,7 @@ const List<AgentWorkflow> builtinWorkflows = [
         '文件、上网、git、记忆、技能都用得上。用中文回答。',
     toolsets: [
       'file', 'web', 'memory', 'todo', 'skills', 'session_search', 'git',
-      'clarify', 'delegate', 'cron', 'vision',
+      'clarify', 'delegate', 'moa', 'cron', 'vision',
     ],
     planGate: false,
     autoDelegate: true,
