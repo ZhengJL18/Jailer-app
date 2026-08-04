@@ -1,8 +1,7 @@
-/// 云端保险柜：用用户密钥 AES 加密备份包，上传/下载到云服务器。
+/// 云端保险柜：注册/登录后，用 AES 加密备份包上传/下载到云服务器。
 ///
-/// - 用户自设密钥 → PBKDF2 派生 AES 密钥 → 加密数据（服务器只存密文）。
-/// - 柜号（1~100）作为服务器上的存储槽位。
-/// - 服务器极简：POST/GET /vault/{id}，只存不解析内容。
+/// - 账号体系：注册/登录（保险柜名 + 密码），服务器返回会话 token。
+/// - 备份数据用用户密钥 AES 加密（服务器只存密文）。
 library;
 
 import 'dart:convert';
@@ -20,54 +19,113 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 用户可覆盖（支持自建服务器）。
 const String officialVaultUrl = 'http://43.139.179.58';
 
-/// 官方服务器的管理 token（App 内置，官方服务器有效）。
-/// 用户配置 serverToken 时优先用用户的；未配置且连官方服务器时用此 token。
-const String officialVaultToken = '8abcf78d83529f4751718168f2dcabcd';
-
-/// 保险柜配置（服务器 + 柜号 + 密钥）。
+/// 保险柜账号配置（服务器 + 保险柜名 + 会话 token）。
 class VaultConfig {
-  final String serverUrl; // 如 https://your-server.com
-  final int vaultId; // 1~100
-  final String secret; // 用户密钥
-  final String? serverToken; // 服务器管理 token（可选）
+  final String serverUrl;
+  final String accountName; // 保险柜名（登录后）。
+  final String sessionToken; // 会话 token（登录后服务器返回）。
 
   const VaultConfig({
     required this.serverUrl,
-    required this.vaultId,
-    required this.secret,
-    this.serverToken,
+    required this.accountName,
+    required this.sessionToken,
   });
 
-  bool get isComplete => serverUrl.isNotEmpty && secret.isNotEmpty;
+  bool get isComplete => serverUrl.isNotEmpty && accountName.isNotEmpty && sessionToken.isNotEmpty;
 }
 
-/// 读取保险柜配置。
+/// 读取已登录的保险柜配置。
 Future<VaultConfig?> loadVaultConfig() async {
   final prefs = await SharedPreferences.getInstance();
   final url = prefs.getString('vault_server') ?? '';
-  final id = prefs.getInt('vault_id') ?? 0;
-  final secret = prefs.getString('vault_secret') ?? '';
-  if (url.isEmpty || secret.isEmpty) {
+  final name = prefs.getString('vault_account') ?? '';
+  final token = prefs.getString('vault_token') ?? '';
+  if (url.isEmpty || name.isEmpty || token.isEmpty) {
     return null;
   }
   return VaultConfig(
     serverUrl: url,
-    vaultId: id,
-    secret: secret,
-    serverToken: prefs.getString('vault_token'),
+    accountName: name,
+    sessionToken: token,
   );
 }
 
-/// 保存保险柜配置。
+/// 保存保险柜登录态。
 Future<void> saveVaultConfig(VaultConfig cfg) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.setString('vault_server', cfg.serverUrl);
-  await prefs.setInt('vault_id', cfg.vaultId);
-  await prefs.setString('vault_secret', cfg.secret);
-  if (cfg.serverToken != null) {
-    await prefs.setString('vault_token', cfg.serverToken!);
+  await prefs.setString('vault_account', cfg.accountName);
+  await prefs.setString('vault_token', cfg.sessionToken);
+}
+
+/// 清除保险柜登录态。
+Future<void> clearVaultConfig() async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.remove('vault_server');
+  await prefs.remove('vault_account');
+  await prefs.remove('vault_token');
+}
+
+/// 注册保险柜账号。
+/// 成功返回会话 token；失败抛 [VaultAuthException]。
+Future<String> registerVaultAccount({
+  required String serverUrl,
+  required String name,
+  required String password,
+}) async {
+  final uri = Uri.parse('$serverUrl/auth/register');
+  final resp = await http
+      .post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'name': name, 'password': password}),
+      )
+      .timeout(const Duration(seconds: 20));
+  final data = _tryDecode(resp.body);
+  if (resp.statusCode != 200) {
+    throw VaultAuthException(data?['error'] as String? ?? '注册失败：HTTP ${resp.statusCode}');
+  }
+  return data?['token'] as String? ?? '';
+}
+
+/// 登录保险柜账号。
+/// 成功返回会话 token；失败抛 [VaultAuthException]。
+Future<String> loginVaultAccount({
+  required String serverUrl,
+  required String name,
+  required String password,
+}) async {
+  final uri = Uri.parse('$serverUrl/auth/login');
+  final resp = await http
+      .post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'name': name, 'password': password}),
+      )
+      .timeout(const Duration(seconds: 20));
+  final data = _tryDecode(resp.body);
+  if (resp.statusCode != 200) {
+    throw VaultAuthException(data?['error'] as String? ?? '登录失败：HTTP ${resp.statusCode}');
+  }
+  return data?['token'] as String? ?? '';
+}
+
+Map<String, dynamic>? _tryDecode(String body) {
+  try {
+    return jsonDecode(body) as Map<String, dynamic>;
+  } catch (_) {
+    return null;
   }
 }
+
+/// 保险柜认证异常（注册/登录失败）。
+class VaultAuthException implements Exception {
+  final String message;
+  VaultAuthException(this.message);
+  @override
+  String toString() => message;
+}
+
 
 /// 把 App 数据打包成 JSON 备份（state.db + 记忆 + 技能 + 配置）。
 ///
@@ -181,51 +239,43 @@ Uint8List _deriveKey(String secret, Uint8List salt) {
   return pbkdf2.process(utf8.encode(secret));
 }
 
-/// 有效 token：用户配置优先，连官方服务器时用内置官方 token。
-String? _effectiveToken(VaultConfig cfg) {
-  if (cfg.serverToken != null && cfg.serverToken!.isNotEmpty) {
-    return cfg.serverToken;
-  }
-  if (cfg.serverUrl == officialVaultUrl) {
-    return officialVaultToken;
-  }
-  return null;
-}
-
-/// 上传备份（覆盖柜号对应数据）。
+/// 上传备份（覆盖该账号保险柜）。
 Future<void> uploadBackup(VaultConfig cfg, Uint8List encrypted) async {
-  final uri = Uri.parse('${cfg.serverUrl}/vault/${cfg.vaultId}');
-  final token = _effectiveToken(cfg);
+  final uri = Uri.parse('${cfg.serverUrl}/vault');
   final resp = await http
       .put(
         uri,
         headers: {
           'Content-Type': 'application/octet-stream',
-          'X-Auth-Token': ?token,
+          'X-Auth-Token': cfg.sessionToken,
         },
         body: encrypted,
-
       )
       .timeout(const Duration(seconds: 30));
+  if (resp.statusCode == 401) {
+    throw HttpException('登录已过期，请重新登录');
+  }
   if (resp.statusCode != 200) {
     throw HttpException('上传失败：HTTP ${resp.statusCode} ${resp.body}');
   }
 }
 
-/// 下载备份（读取柜号对应密文）。
+/// 下载备份（读取该账号保险柜密文）。
 Future<Uint8List> downloadBackup(VaultConfig cfg) async {
-  final uri = Uri.parse('${cfg.serverUrl}/vault/${cfg.vaultId}');
-  final token = _effectiveToken(cfg);
+  final uri = Uri.parse('${cfg.serverUrl}/vault');
   final resp = await http
       .get(
         uri,
         headers: {
-          'X-Auth-Token': ?token,
+          'X-Auth-Token': cfg.sessionToken,
         },
       )
       .timeout(const Duration(seconds: 30));
+  if (resp.statusCode == 401) {
+    throw HttpException('登录已过期，请重新登录');
+  }
   if (resp.statusCode == 404) {
-    throw HttpException('柜号 ${cfg.vaultId} 还没有备份');
+    throw HttpException('该保险柜还没有备份');
   }
   if (resp.statusCode != 200) {
     throw HttpException('下载失败：HTTP ${resp.statusCode} ${resp.body}');

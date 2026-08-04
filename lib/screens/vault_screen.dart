@@ -1,4 +1,6 @@
-/// 云端保险柜：配置云服务器 + 加密上传/下载/修改备份。
+/// 云端保险柜：注册/登录 + 加密上传/下载备份。
+///
+/// 不登录不影响软件其他功能，保险柜是独立的功能。
 library;
 
 import 'dart:convert';
@@ -19,11 +21,13 @@ class VaultScreen extends StatefulWidget {
 
 class _VaultScreenState extends State<VaultScreen> {
   final _serverController = TextEditingController();
-  final _tokenController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _passwordController = TextEditingController();
   final _secretController = TextEditingController();
-  int _vaultId = 1;
+  VaultConfig? _config; // 已登录的配置（null = 未登录）。
   bool _loading = true;
   bool _busy = false;
+  bool _isRegister = false;
   String? _msg;
 
   @override
@@ -35,7 +39,8 @@ class _VaultScreenState extends State<VaultScreen> {
   @override
   void dispose() {
     _serverController.dispose();
-    _tokenController.dispose();
+    _nameController.dispose();
+    _passwordController.dispose();
     _secretController.dispose();
     super.dispose();
   }
@@ -44,34 +49,15 @@ class _VaultScreenState extends State<VaultScreen> {
     final cfg = await loadVaultConfig();
     if (!mounted) return;
     setState(() {
-      if (cfg != null) {
-        _serverController.text = cfg.serverUrl;
-        _tokenController.text = cfg.serverToken ?? '';
-        _secretController.text = cfg.secret;
-        _vaultId = cfg.vaultId;
-      } else {
-        // 默认用官方服务器地址。
+      _config = cfg;
+      if (cfg == null) {
         _serverController.text = officialVaultUrl;
+      } else {
+        _serverController.text = cfg.serverUrl;
+        _nameController.text = cfg.accountName;
       }
       _loading = false;
     });
-  }
-
-  VaultConfig? _buildConfig() {
-    final url = _serverController.text.trim().replaceAll(RegExp(r'/+$'), '');
-    final secret = _secretController.text.trim();
-    if (url.isEmpty || secret.isEmpty) {
-      _setMsg('请填写服务器地址和密钥');
-      return null;
-    }
-    return VaultConfig(
-      serverUrl: url,
-      vaultId: _vaultId,
-      secret: secret,
-      serverToken: _tokenController.text.trim().isEmpty
-          ? null
-          : _tokenController.text.trim(),
-    );
   }
 
   void _setMsg(String m) {
@@ -79,24 +65,75 @@ class _VaultScreenState extends State<VaultScreen> {
     setState(() => _msg = m);
   }
 
-  Future<void> _saveConfig(VaultConfig cfg) async {
-    await saveVaultConfig(cfg);
+  /// 注册或登录。
+  Future<void> _authenticate() async {
+    final url = _serverController.text.trim().replaceAll(RegExp(r'/+$'), '');
+    final name = _nameController.text.trim();
+    final password = _passwordController.text;
+    if (url.isEmpty || name.isEmpty || password.isEmpty) {
+      _setMsg('请填写服务器地址、保险柜名和密码');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _msg = _isRegister ? '注册中…' : '登录中…';
+    });
+    try {
+      final token = _isRegister
+          ? await registerVaultAccount(
+              serverUrl: url, name: name, password: password)
+          : await loginVaultAccount(
+              serverUrl: url, name: name, password: password);
+      final cfg = VaultConfig(
+        serverUrl: url,
+        accountName: name.toLowerCase(),
+        sessionToken: token,
+      );
+      await saveVaultConfig(cfg);
+      if (!mounted) return;
+      setState(() {
+        _config = cfg;
+        _busy = false;
+        _msg = _isRegister ? '✓ 注册成功，已登录' : '✓ 登录成功';
+      });
+    } on VaultAuthException catch (e) {
+      _setMsg('✗ $e');
+      setState(() => _busy = false);
+    } catch (e) {
+      _setMsg('✗ $e');
+      setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _logout() async {
+    await clearVaultConfig();
+    if (!mounted) return;
+    setState(() {
+      _config = null;
+      _passwordController.clear();
+      _secretController.clear();
+      _msg = '已退出登录';
+    });
   }
 
   Future<void> _upload() async {
-    final cfg = _buildConfig();
+    final cfg = _config;
     if (cfg == null) return;
+    final secret = _secretController.text.trim();
+    if (secret.isEmpty) {
+      _setMsg('请设置保险柜加密密钥（用于加密备份数据）');
+      return;
+    }
     setState(() {
       _busy = true;
       _msg = '打包并加密中…';
     });
     try {
       final payload = await buildBackupPayload();
-      final encrypted = encryptPayload(payload, cfg.secret);
-      setState(() => _msg = '上传到柜号 ${cfg.vaultId}…');
+      final encrypted = encryptPayload(payload, secret);
+      setState(() => _msg = '上传中…');
       await uploadBackup(cfg, encrypted);
-      await _saveConfig(cfg);
-      _setMsg('✓ 备份已上传到柜号 ${cfg.vaultId}（${encrypted.length} 字节，已加密）');
+      _setMsg('✓ 备份已上传（${encrypted.length} 字节，已加密）');
     } catch (e) {
       _setMsg('✗ 上传失败：$e');
     } finally {
@@ -105,21 +142,27 @@ class _VaultScreenState extends State<VaultScreen> {
   }
 
   Future<void> _download() async {
-    final cfg = _buildConfig();
+    final cfg = _config;
     if (cfg == null) return;
+    final secret = _secretController.text.trim();
+    if (secret.isEmpty) {
+      _setMsg('请输入保险柜加密密钥');
+      return;
+    }
     setState(() {
       _busy = true;
-      _msg = '下载柜号 ${cfg.vaultId}…';
+      _msg = '下载中…';
     });
     try {
       final encrypted = await downloadBackup(cfg);
       setState(() => _msg = '解密中…');
-      final payload = decryptPayload(encrypted, cfg.secret);
+      final payload = decryptPayload(encrypted, secret);
       await _restorePayload(payload);
-      await _saveConfig(cfg);
-      _setMsg('✓ 已从柜号 ${cfg.vaultId} 恢复备份');
+      _setMsg('✓ 已恢复备份');
     } on FormatException {
       _setMsg('✗ 解密失败：密钥错误或数据损坏');
+    } on HttpException catch (e) {
+      _setMsg('✗ $e');
     } catch (e) {
       _setMsg('✗ 下载失败：$e');
     } finally {
@@ -129,20 +172,17 @@ class _VaultScreenState extends State<VaultScreen> {
 
   Future<void> _restorePayload(Map<String, dynamic> payload) async {
     final dir = await _getDocsDir();
-    // 恢复 state.db。
     final dbB64 = payload['state_db'];
     if (dbB64 is String) {
       final bytes = base64Decode(dbB64);
       await File('${dir.path}/state.db').writeAsBytes(bytes);
     }
-    // 恢复文件（记忆/技能）。
     final files = payload['files'];
     if (files is Map<String, dynamic>) {
       for (final entry in files.entries) {
         final relPath = entry.key;
         final content = entry.value;
         if (content is! String) continue;
-        // 安全：只允许 documents 内相对路径，防路径穿越。
         final target = File('${dir.path}/$relPath');
         if (!target.path.startsWith(dir.path)) continue;
         await target.create(recursive: true);
@@ -168,132 +208,138 @@ class _VaultScreenState extends State<VaultScreen> {
                 Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Hermes 官方云保险柜：备份用你的密钥 AES 加密，'
-                          '服务器只存密文，看不到内容。柜号（1~100）是存储槽位。'
-                          '服务器地址默认官方，可改成自建服务器。',
-                          style: TextStyle(fontSize: 13, color: context.appPalette.textSecondary),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _serverController,
-                          decoration: const InputDecoration(
-                            labelText: '服务器地址',
-                            hintText: 'https://your-server.com:8741',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _tokenController,
-                                decoration: const InputDecoration(
-                                  labelText: '服务器 Token（可选）',
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            SizedBox(
-                              width: 110,
-                              child: InputDecorator(
-                                decoration: const InputDecoration(
-                                  labelText: '柜号',
-                                  border: OutlineInputBorder(),
-                                ),
-                                child: DropdownButton<int>(
-                                  value: _vaultId,
-                                  isDense: true,
-                                  underline: const SizedBox.shrink(),
-                                  items: [
-                                    for (var i = 1; i <= 100; i++)
-                                      DropdownMenuItem(
-                                          value: i, child: Text('$i')),
-                                  ],
-                                  onChanged: (v) =>
-                                      setState(() => _vaultId = v ?? 1),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: _secretController,
-                          obscureText: true,
-                          decoration: const InputDecoration(
-                            labelText: '保险柜密钥',
-                            hintText: '自设密钥，务必记住',
-                            border: OutlineInputBorder(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        if (_msg != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Text(_msg!,
-                                style: const TextStyle(fontSize: 12)),
-                          ),
-                        if (_busy) const LinearProgressIndicator(),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: _busy ? null : _upload,
-                                icon: const Icon(Icons.upload),
-                                label: const Text('上传备份'),
-                              ),
-                            ),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: FilledButton.icon(
-                                onPressed: _busy ? null : _download,
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: context.appPalette.primary,
-                                ),
-                                icon: const Icon(Icons.download),
-                                label: const Text('下载恢复'),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        TextButton.icon(
-                          onPressed: _busy ? null : () async {
-                            final cfg = _buildConfig();
-                            if (cfg == null) return;
-                            setState(() {
-                              _busy = true;
-                              _msg = '上传覆盖柜号 ${cfg.vaultId}…';
-                            });
-                            try {
-                              final payload = await buildBackupPayload();
-                              final encrypted =
-                                  encryptPayload(payload, cfg.secret);
-                              await uploadBackup(cfg, encrypted);
-                              await _saveConfig(cfg);
-                              _setMsg('✓ 已覆盖柜号 ${cfg.vaultId} 的备份');
-                            } catch (e) {
-                              _setMsg('✗ 覆盖失败：$e');
-                            } finally {
-                              if (mounted) setState(() => _busy = false);
-                            }
-                          },
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('修改（覆盖）现有备份'),
-                        ),
-                      ],
-                    ),
+                    child: _config == null
+                        ? _buildLogin()
+                        : _buildVault(),
                   ),
                 ),
               ],
             ),
+    );
+  }
+
+  /// 未登录：注册/登录表单。
+  Widget _buildLogin() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          '云端保险柜需要注册/登录使用（不影响其他功能）。'
+          '保险柜名唯一，注册时若被占用会提示。',
+          style: TextStyle(fontSize: 13, color: Colors.grey),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _serverController,
+          decoration: const InputDecoration(
+            labelText: '服务器地址',
+            hintText: 'https://...',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _nameController,
+          decoration: const InputDecoration(
+            labelText: '保险柜名',
+            hintText: '2-32 位字母/数字/_-',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _passwordController,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: '密码',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_msg != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(_msg!, style: const TextStyle(fontSize: 12)),
+          ),
+        if (_busy) const LinearProgressIndicator(),
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: _busy ? null : _authenticate,
+          icon: Icon(_isRegister ? Icons.person_add : Icons.login),
+          label: Text(_isRegister ? '注册' : '登录'),
+        ),
+        TextButton(
+          onPressed: _busy ? null : () => setState(() {
+            _isRegister = !_isRegister;
+            _msg = null;
+          }),
+          child: Text(_isRegister
+              ? '已有保险柜？去登录'
+              : '还没有保险柜？去注册'),
+        ),
+      ],
+    );
+  }
+
+  /// 已登录：保险柜操作。
+  Widget _buildVault() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.vpn_key, size: 18),
+            const SizedBox(width: 6),
+            Text('已登录：${_config!.accountName}',
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            const Spacer(),
+            TextButton(
+              onPressed: _busy ? null : _logout,
+              child: const Text('退出登录'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _secretController,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: '保险柜加密密钥',
+            hintText: '自设密钥，用于加密备份数据，务必记住',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_msg != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(_msg!, style: const TextStyle(fontSize: 12)),
+          ),
+        if (_busy) const LinearProgressIndicator(),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _busy ? null : _upload,
+                icon: const Icon(Icons.upload),
+                label: const Text('上传备份'),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _busy ? null : _download,
+                style: FilledButton.styleFrom(
+                  backgroundColor: context.appPalette.primary,
+                ),
+                icon: const Icon(Icons.download),
+                label: const Text('下载恢复'),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
