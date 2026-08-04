@@ -106,10 +106,13 @@ class OpenAiLlmClient {
   ///
   /// [messages] OpenAI 格式消息列表；[tools] OpenAI 格式工具定义（可选）。
   /// 返回聚合后的 [LlmTurnResult]。流式文本逐 delta 经 [onDelta] 回调。
+  ///
+  /// [isCancelled] 每次收到 chunk 时检查，返回 true 则立即中断流式读取。
   Future<LlmTurnResult> chatStream({
     required List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>>? tools,
     void Function(String delta)? onDelta,
+    bool Function()? isCancelled,
   }) async {
     final body = <String, dynamic>{
       'model': config.model,
@@ -148,7 +151,7 @@ class OpenAiLlmClient {
     }
 
     try {
-      return await _parseStreamStream(response, onDelta: onDelta);
+      return await _parseStreamStream(response, onDelta: onDelta, isCancelled: isCancelled);
     } catch (e) {
       // 流中断/解析错误也包成 LlmException。
       if (e is LlmException) {
@@ -234,6 +237,7 @@ class OpenAiLlmClient {
   Future<LlmTurnResult> _parseStreamStream(
     http.StreamedResponse response, {
     void Function(String delta)? onDelta,
+    bool Function()? isCancelled,
   }) async {
     var buffer = '';
     final contentParts = <String>[];
@@ -265,6 +269,9 @@ class OpenAiLlmClient {
         .bind(response.stream)
         .timeout(const Duration(seconds: 30));
     await for (final chunk in timedStream) {
+      if (isCancelled?.call() ?? false) {
+        break; // 用户中断：丢弃剩余流，返回已聚合内容。
+      }
       buffer += chunk;
       while (buffer.contains('\n')) {
         final nl = buffer.indexOf('\n');

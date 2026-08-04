@@ -197,6 +197,7 @@ class JailerAgent {
             messages: messages,
             tools: tools,
             onDelta: onDelta,
+            isCancelled: () => _cancelled,
           );
           turn = result;
           break;
