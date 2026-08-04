@@ -86,6 +86,9 @@ class _ChatScreenState extends State<ChatScreen> {
   // 工具名 → 当前 running 卡片的消息索引（done 时更新而非新增）。
   final Map<String, int> _toolRunningIdx = {};
   bool _running = false;
+  bool _planMode = false; // Claude Code 式 plan 模式：先出计划，批准后执行。
+  String? _pendingPlan; // 待批准的计划。
+  String? _pendingTask; // 待执行的任务原文（批准计划后执行用）。
   JailerAgent? _activeAgent;
   MemoryManager? _memory;
   SessionDB? _sessionDb;
@@ -147,6 +150,162 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
     if (!mounted) return;
     setState(() {});
+  }
+
+  /// Plan 模式：只读探索任务，生成计划并展示（不执行写操作）。
+  Future<void> _generatePlan(String task) async {
+    final config = await JailerConfig.load();
+    if (config == null) {
+      _addAssistant('请先配置 AI');
+      return;
+    }
+    setState(() {
+      _running = true;
+      _pendingPlan = null;
+    });
+    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    final planAgent = JailerAgent(
+      llm: llm,
+      systemPrompt: '你是 Hermes，处于计划模式。你现在只做探索和规划，'
+          '绝对不要修改/创建/删除任何文件，不要 git add/commit/push。'
+          '可以用 read_file / search_files / git_status / git_diff 探索当前状态，'
+          '然后输出一个清晰的执行计划：列出要做的步骤、每步做什么、'
+          '涉及什么文件/命令。计划要具体、可执行。用中文。',
+      toolDefinitionsProvider: () => getToolDefinitions(
+        enabledToolsets: const ['file', 'git'],
+        quietMode: true,
+      ),
+      maxIterations: 15,
+    );
+    try {
+      final result = await planAgent.runConversation(task);
+      final plan = result.finalResponse ?? '(无计划输出)';
+      if (!mounted) return;
+      setState(() {
+        _pendingPlan = plan;
+        _running = false;
+      });
+      _addAssistant('📋 **执行计划**\n\n$plan');
+      _addPlanApprovalBar();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _running = false);
+      _addAssistant('生成计划失败：$e');
+    }
+  }
+
+  /// 计划批准/拒绝操作条。
+  void _addPlanApprovalBar() {
+    if (!mounted) return;
+    _pendingPlan = _pendingPlan; // 保留计划。
+    setState(() {
+      _messages.add(_ChatMessage.tool('plan_approval', 'running'));
+    });
+  }
+
+  /// 批准计划：用完整工具执行。
+  Future<void> _executePlan(String task) async {
+    final plan = _pendingPlan;
+    setState(() {
+      _pendingPlan = null;
+      _running = true;
+      _toolRunningIdx.clear();
+    });
+    if (plan != null) {
+      // 把计划加进对话，agent 执行时参考。
+      await _runTaskWithFullTools('$task\n\n按以下计划执行：\n$plan');
+      return;
+    }
+    await _runTaskWithFullTools(task);
+  }
+
+  /// 用完整工具集执行任务（现有 _send 主体逻辑抽取）。
+  Future<void> _runTaskWithFullTools(String task) async {
+    final config = await JailerConfig.load();
+    if (config == null) {
+      _addAssistant('请先配置 AI');
+      return;
+    }
+    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    final compressor = ContextCompressor(
+      contextLength: 100000,
+      summarizer: (middle) async {
+        final summaryTurn = await llm.chatStream(
+          messages: [
+            {
+              'role': 'system',
+              'content': 'Summarize the conversation below, preserving key '
+                  'facts, decisions, and context. Be concise.',
+            },
+            {'role': 'user', 'content': jsonEncode(middle)},
+          ],
+        );
+        return summaryTurn.content ?? '';
+      },
+    );
+    _activeAgent = JailerAgent(
+      llm: llm,
+      memoryManager: _memory,
+      sessionDb: _sessionDb,
+      sessionId: _currentSessionId,
+      contextCompressor: compressor,
+      systemPrompt: _systemPrompt(),
+      toolDefinitionsProvider: () => getToolDefinitions(
+        enabledToolsets: const [
+          'file', 'web', 'memory', 'todo', 'skills', 'session_search',
+          'git', 'clarify', 'delegate', 'cron', 'vision',
+        ],
+        quietMode: true,
+      ),
+      onDelta: (delta) {
+        setState(() {
+          if (_messages.isEmpty ||
+              _messages.last.role == 'user' ||
+              _messages.last.role == 'tool') {
+            _messages.add(_ChatMessage.assistant(delta));
+          } else if (_messages.last.role == 'assistant') {
+            final last = _messages.last;
+            _messages[_messages.length - 1] = _ChatMessage.assistant(
+                (last.text ?? '') + delta);
+          }
+        });
+      },
+      onToolEvent: (name, status) {
+        setState(() {
+          if (status == 'running') {
+            _toolRunningIdx[name] = _messages.length;
+            _messages.add(_ChatMessage.tool(name, status));
+          } else {
+            final idx = _toolRunningIdx.remove(name);
+            if (idx != null && idx < _messages.length) {
+              _messages[idx] = _ChatMessage.tool(name, status);
+            } else {
+              _messages.add(_ChatMessage.tool(name, status));
+            }
+          }
+        });
+      },
+    );
+    try {
+      final result = await _activeAgent!.runConversation(task);
+      if (result.completed &&
+          result.finalResponse != null &&
+          _messages.isNotEmpty &&
+          _messages.last.role == 'assistant' &&
+          _messages.last.text != result.finalResponse) {
+        setState(() {
+          _messages[_messages.length - 1] =
+              _ChatMessage.assistant(result.finalResponse);
+        });
+      } else if (!result.completed && result.finalResponse != null) {
+        _addAssistant(result.finalResponse!);
+      }
+    } catch (e) {
+      _addAssistant('出错了：$e');
+    } finally {
+      _activeAgent = null;
+      setState(() => _running = false);
+    }
   }
 
   /// delegate 回调：子 agent 独立执行任务，返回结果摘要。
@@ -336,108 +495,16 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     _addUser(text);
-    setState(() {
-      _running = true;
-      _toolRunningIdx.clear();
-    });
 
-    final llm = OpenAiLlmClient(config: config.toLlmConfig());
-    // 上下文压缩：超阈值时用主 LLM 摘要中间段（手机内存刚需）。
-    final compressor = ContextCompressor(
-      contextLength: 100000,
-      summarizer: (middle) async {
-        final summaryTurn = await llm.chatStream(
-          messages: [
-            {
-              'role': 'system',
-              'content': 'Summarize the conversation below, preserving key '
-                  'facts, decisions, and context. Be concise.',
-            },
-            {'role': 'user', 'content': jsonEncode(middle)},
-          ],
-        );
-        return summaryTurn.content ?? '';
-      },
-    );
-    _activeAgent = JailerAgent(
-      llm: llm,
-      memoryManager: _memory,
-      sessionDb: _sessionDb,
-      sessionId: _currentSessionId,
-      contextCompressor: compressor,
-      systemPrompt: _systemPrompt(),
-      toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: const [
-          'file',
-          'web',
-          'memory',
-          'todo',
-          'skills',
-          'session_search',
-          'git',
-          'clarify',
-          'delegate',
-          'cron',
-          'vision',
-        ],
-        quietMode: true,
-      ),
-      onDelta: (delta) {
-        setState(() {
-          // 若上一条是工具事件，则开新 assistant 消息；否则累积到最后一条。
-          if (_messages.isEmpty ||
-              _messages.last.role == 'user' ||
-              _messages.last.role == 'tool') {
-            _messages.add(_ChatMessage.assistant(delta));
-          } else if (_messages.last.role == 'assistant') {
-            final last = _messages.last;
-            _messages[_messages.length - 1] = _ChatMessage.assistant(
-                (last.text ?? '') + delta);
-          }
-        });
-      },
-      onToolEvent: (name, status) {
-        setState(() {
-          if (status == 'running') {
-            // 新增 running 卡片，记录索引。
-            _toolRunningIdx[name] = _messages.length;
-            _messages.add(_ChatMessage.tool(name, status));
-          } else {
-            // 找到对应 running 卡片更新为 done；找不到则新增。
-            final idx = _toolRunningIdx.remove(name);
-            if (idx != null && idx < _messages.length) {
-              _messages[idx] = _ChatMessage.tool(name, status);
-            } else {
-              _messages.add(_ChatMessage.tool(name, status));
-            }
-          }
-        });
-      },
-    );
-
-    try {
-      final result = await _activeAgent!.runConversation(text);
-      // 只在完成时用 finalResponse 覆盖流式内容；预算耗尽/失败（completed=false）
-      // 时保留已流式的半截回答，不覆盖为用户看不到的错误文案。
-      if (result.completed &&
-          result.finalResponse != null &&
-          _messages.isNotEmpty &&
-          _messages.last.role == 'assistant' &&
-          _messages.last.text != result.finalResponse) {
-        setState(() {
-          _messages[_messages.length - 1] =
-              _ChatMessage.assistant(result.finalResponse);
-        });
-      } else if (!result.completed && result.finalResponse != null) {
-        // 预算耗尽：保留流式内容，追加提示。
-        _addAssistant(result.finalResponse!);
-      }
-    } catch (e) {
-      _addAssistant('出错了：$e');
-    } finally {
-      _activeAgent = null;
-      setState(() => _running = false);
+    // Plan 模式：先让 LLM 出计划（只读探索），批准后再执行。
+    if (_planMode) {
+      _pendingTask = text;
+      await _generatePlan(text);
+      return;
     }
+
+    // 非 plan 模式：直接执行（完整工具集）。
+    await _runTaskWithFullTools(text);
   }
 
   void _addUser(String text) {
@@ -461,6 +528,16 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('Hermes'),
         actions: [
+          // Plan 模式切换（Claude Code 式：先计划后执行）。
+          TextButton.icon(
+            onPressed: () => setState(() => _planMode = !_planMode),
+            icon: Icon(_planMode ? Icons.check_circle : Icons.rule,
+                color: _planMode ? Colors.teal : Colors.grey, size: 18),
+            label: Text(_planMode ? '计划' : '执行',
+                style: TextStyle(
+                    fontSize: 12,
+                    color: _planMode ? Colors.teal : Colors.grey)),
+          ),
           IconButton(
             icon: const Icon(Icons.code),
             tooltip: 'GitHub',
@@ -569,7 +646,58 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       case 'tool':
-        // 工具调用卡片。
+        // 计划审批卡：批准/拒绝按钮。
+        if (m.toolName == 'plan_approval') {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border.all(color: Colors.teal, width: 1.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.rule, color: Colors.teal, size: 16),
+                    SizedBox(width: 6),
+                    Text('计划已生成，是否执行？',
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: () {
+                          _executePlan(_pendingTask ?? '继续');
+                        },
+                        style: FilledButton.styleFrom(backgroundColor: Colors.teal),
+                        child: const Text('批准并执行'),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setState(() {
+                            _pendingPlan = null;
+                            _messages.removeLast();
+                          });
+                        },
+                        child: const Text('拒绝'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+        // 普通工具调用卡片。
         final running = m.toolStatus == 'running';
         return Container(
           margin: const EdgeInsets.only(bottom: 8),
