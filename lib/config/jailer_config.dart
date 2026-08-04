@@ -30,6 +30,23 @@ class JailerConfig {
   bool get isComplete =>
       vendorId.isNotEmpty && model.isNotEmpty && apiKey.isNotEmpty;
 
+  /// 快速模型配置（分级委派：子任务用快/便宜模型）。
+  /// 未配置时 fallback 主模型。
+  static Future<LlmConfig?> loadFastConfig() async {
+    final prefs = await SharedPreferences.getInstance();
+    final apiKey = prefs.getString('fast_api_key') ?? '';
+    final model = prefs.getString('fast_model') ?? '';
+    if (apiKey.isEmpty || model.isEmpty) {
+      return null;
+    }
+    final baseUrl = prefs.getString('fast_base_url') ?? '';
+    return LlmConfig(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      model: model,
+    );
+  }
+
   /// 从 SharedPreferences 读取。
   static Future<JailerConfig?> load() async {
     final prefs = await SharedPreferences.getInstance();

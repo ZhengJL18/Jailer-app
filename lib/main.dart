@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'agent/agent.dart';
 import 'agent/context_compressor.dart';
+import 'agent/workflow.dart';
 import 'config/jailer_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
@@ -90,6 +91,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _planMode = false; // Claude Code 式 plan 模式：先出计划，批准后执行。
   String? _pendingPlan; // 待批准的计划。
   String? _pendingTask; // 待执行的任务原文（批准计划后执行用）。
+  String _workflowId = 'daily'; // 当前工作流（AgentWorkflow）。
   JailerAgent? _activeAgent;
   MemoryManager? _memory;
   SessionDB? _sessionDb;
@@ -252,12 +254,11 @@ class _ChatScreenState extends State<ChatScreen> {
       sessionDb: _sessionDb,
       sessionId: _currentSessionId,
       contextCompressor: compressor,
-      systemPrompt: _systemPrompt(contextBlock: formatContextBlock(retrieved)),
+      systemPrompt: _buildWorkflowPrompt(
+        contextBlock: formatContextBlock(retrieved),
+      ),
       toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: const [
-          'file', 'web', 'memory', 'todo', 'skills', 'session_search',
-          'git', 'clarify', 'delegate', 'cron', 'vision',
-        ],
+        enabledToolsets: _currentWorkflow.toolsets,
         quietMode: true,
       ),
       onDelta: (delta) {
@@ -317,7 +318,11 @@ class _ChatScreenState extends State<ChatScreen> {
     if (config == null) {
       return '子任务未执行：AI 未配置';
     }
-    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    // 分级委派：子任务优先用快模型（未配置则 fallback 主模型）。
+    final fastConfig = await JailerConfig.loadFastConfig();
+    final llm = OpenAiLlmClient(
+      config: fastConfig ?? config.toLlmConfig(),
+    );
     final subAgent = JailerAgent(
       llm: llm,
       systemPrompt: '你是 Hermes 的子代理。独立完成给定任务并简洁汇报结果。'
@@ -434,27 +439,21 @@ class _ChatScreenState extends State<ChatScreen> {
     return answer ?? '';
   }
 
-  /// 构建系统提示（含记忆 + skill 索引 + 工程检索上下文）。
-  String _systemPrompt({String contextBlock = ''}) {
-    final externalAllowed = fileToolsAllowExternal;
-    var prompt = '你是 Hermes，一个运行在 Android App 沙盒里的 agent。'
-        '你可以调用工具操作文件（read_file / write_file / patch / '
-        'search_files），管理记忆（memory），上网（web_search / '
-        'web_extract），管理待办（todo），回顾会话（session_search），'
-        '以及使用技能（skills_list / skill_view / skill_manage）。'
-        '用中文回答。';
-    if (externalAllowed) {
+  /// 当前工作流（按 _workflowId，未知则回退通用）。
+  AgentWorkflow get _currentWorkflow =>
+      findWorkflow(_workflowId) ?? builtinWorkflows.last;
+
+  /// 按工作流构建系统提示（人设 + 委派/计划策略 + 工程检索 + 技能 + 外部权限）。
+  String _buildWorkflowPrompt({String contextBlock = ''}) {
+    var prompt = _currentWorkflow.buildSystemPrompt(
+      contextBlock: contextBlock,
+      skillBlock: buildSkillsSystemPrompt(),
+    );
+    if (fileToolsAllowExternal) {
       prompt += '\n\n你已获准访问公共存储目录（/sdcard/Download、'
           '/sdcard/Documents 等）。用户可能请你读取、搜索或编辑这些目录里的'
           '文件（如课件、笔记、图片）。访问公共目录请用绝对路径，例如 '
           '`/sdcard/Download/文件名`。';
-    }
-    if (contextBlock.isNotEmpty) {
-      prompt = '$prompt\n\n$contextBlock';
-    }
-    final skillBlock = buildSkillsSystemPrompt();
-    if (skillBlock.isNotEmpty) {
-      prompt = '$prompt\n\n$skillBlock';
     }
     return prompt;
   }
@@ -545,6 +544,49 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('Hermes'),
         actions: [
+          // 工作流选择器。
+          PopupMenuButton<String>(
+            tooltip: '工作流',
+            onSelected: (id) => setState(() => _workflowId = id),
+            itemBuilder: (_) => [
+              for (final w in builtinWorkflows)
+                PopupMenuItem(
+                  value: w.id,
+                  child: Row(
+                    children: [
+                      Icon(
+                        w.id == 'coding'
+                            ? Icons.code
+                            : w.id == 'research'
+                                ? Icons.search
+                                : Icons.home,
+                        size: 18,
+                        color: _workflowId == w.id
+                            ? Colors.teal
+                            : Colors.grey,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(w.name),
+                      if (_workflowId == w.id) ...[
+                        const SizedBox(width: 6),
+                        const Icon(Icons.check, size: 16, color: Colors.teal),
+                      ],
+                    ],
+                  ),
+                ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              child: Row(
+                children: [
+                  Icon(Icons.tune, size: 16, color: _currentWorkflow.id == 'coding' ? Colors.teal : Colors.grey),
+                  const SizedBox(width: 2),
+                  Text(_currentWorkflow.name,
+                      style: const TextStyle(fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
           // Plan 模式切换（Claude Code 式：先计划后执行）。
           TextButton.icon(
             onPressed: () => setState(() => _planMode = !_planMode),
@@ -623,7 +665,7 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         ],
         ),
-      ),
+        ),
       ),
     );
   }
