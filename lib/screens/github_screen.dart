@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../services/github_service.dart';
 import '../tools/git_tools.dart';
+import '../theme/theme_ext.dart';
 
 class GitHubScreen extends StatefulWidget {
   const GitHubScreen({super.key});
@@ -279,7 +280,7 @@ class _GitHubScreenState extends State<GitHubScreen>
                       const SizedBox(width: 8),
                       IconButton(
                         onPressed: _clearToken,
-                        icon: const Icon(Icons.logout, color: Colors.red),
+                        icon: Icon(Icons.logout, color: context.appPalette.danger),
                         tooltip: '清除凭据',
                       ),
                     ],
@@ -290,11 +291,11 @@ class _GitHubScreenState extends State<GitHubScreen>
           ),
         ),
         const SizedBox(height: 12),
-        const Padding(
+        Padding(
           padding: EdgeInsets.symmetric(horizontal: 8),
           child: Text(
             'Token 只保存在本机（SharedPreferences），用于 GitHub API 和 HTTPS git 推送。',
-            style: TextStyle(fontSize: 12, color: Colors.grey),
+            style: TextStyle(fontSize: 12, color: context.appPalette.textSecondary),
           ),
         ),
       ],
@@ -328,7 +329,7 @@ class _GitHubScreenState extends State<GitHubScreen>
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.error_outline, color: Colors.red, size: 40),
+                            Icon(Icons.error_outline, color: context.appPalette.danger, size: 40),
                             const SizedBox(height: 8),
                             Text(_reposError!, textAlign: TextAlign.center),
                             const SizedBox(height: 8),
@@ -358,7 +359,7 @@ class _GitHubScreenState extends State<GitHubScreen>
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.download, color: Colors.teal),
+                                    icon: Icon(Icons.download, color: context.appPalette.primary),
                                     tooltip: '克隆到本地',
                                     onPressed: () => _cloneRepo(r),
                                   ),
@@ -393,11 +394,11 @@ class _GitHubScreenState extends State<GitHubScreen>
           child: _loadingLocal
               ? const Center(child: CircularProgressIndicator())
               : _localRepos.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.folder_open, size: 48, color: Colors.grey),
+                          Icon(Icons.folder_open, size: 48, color: context.appPalette.textSecondary),
                           SizedBox(height: 8),
                           Text('暂无本地仓库，去「远程」克隆一个'),
                         ],
@@ -409,7 +410,7 @@ class _GitHubScreenState extends State<GitHubScreen>
                         final path = _localRepos[i];
                         final name = path.split(Platform.pathSeparator).last;
                         return ListTile(
-                          leading: const Icon(Icons.folder, color: Colors.amber),
+                          leading: Icon(Icons.folder, color: context.appPalette.accent),
                           title: Text(name),
                           subtitle: Text(path),
                           onTap: () {

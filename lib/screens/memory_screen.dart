@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
+import '../theme/theme_ext.dart';
 
 class MemoryScreen extends StatefulWidget {
   const MemoryScreen({super.key});
@@ -97,8 +98,8 @@ class _MemoryScreenState extends State<MemoryScreen> {
               children: [
                 Card(
                   child: ListTile(
-                    leading: const Icon(Icons.sticky_note_2_outlined,
-                        color: Colors.teal),
+                    leading: Icon(Icons.sticky_note_2_outlined,
+                        color: context.appPalette.primary),
                     title: const Text('记忆（MEMORY.md）'),
                     subtitle: Text(
                       _memoryContent.isEmpty
@@ -111,7 +112,7 @@ class _MemoryScreenState extends State<MemoryScreen> {
                 ),
                 Card(
                   child: ListTile(
-                    leading: const Icon(Icons.person_outline, color: Colors.blue),
+                    leading: Icon(Icons.person_outline, color: context.appPalette.accent),
                     title: const Text('用户资料（USER.md）'),
                     subtitle: Text(
                       _userContent.isEmpty
@@ -123,12 +124,12 @@ class _MemoryScreenState extends State<MemoryScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const Padding(
+                Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8),
                   child: Text(
                     '这些是 agent 长期记住的内容。agent 也会自动写入；'
                     '你可以手动维护，让 agent 更了解你。',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    style: TextStyle(fontSize: 12, color: context.appPalette.textSecondary),
                   ),
                 ),
               ],

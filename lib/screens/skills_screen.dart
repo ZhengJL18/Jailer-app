@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../skills/skill_discovery.dart';
 import '../tools/skills_tool.dart';
+import '../theme/theme_ext.dart';
 
 class SkillsScreen extends StatefulWidget {
   const SkillsScreen({super.key});
@@ -146,11 +147,11 @@ class _SkillsScreenState extends State<SkillsScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _skills.isEmpty
-              ? const Center(
+              ? Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.menu_book, size: 56, color: Colors.grey),
+                      Icon(Icons.menu_book, size: 56, color: context.appPalette.textSecondary),
                       SizedBox(height: 12),
                       Text('暂无技能，点右上角 + 创建'),
                     ],
@@ -193,7 +194,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
                 const SizedBox(width: 6),
                 Text(
                   '${groups[cat]!.length}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  style: TextStyle(fontSize: 12, color: context.appPalette.textSecondary),
                 ),
               ],
             ),

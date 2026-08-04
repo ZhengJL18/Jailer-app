@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../theme/theme_ext.dart';
 
 class FastModelScreen extends StatefulWidget {
   const FastModelScreen({super.key});
@@ -72,12 +73,12 @@ class _FastModelScreenState extends State<FastModelScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'delegate_task 派发的子任务用这个快速模型处理'
                           '（主模型负责理解/规划/决策）。'
                           '用快/便宜的模型（如 deepseek-chat）可光速解决小任务。'
                           '留空则子任务用主模型。',
-                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                          style: TextStyle(fontSize: 13, color: context.appPalette.textSecondary),
                         ),
                         const SizedBox(height: 12),
                         TextField(

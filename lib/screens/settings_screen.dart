@@ -13,8 +13,10 @@ import 'fast_model_screen.dart';
 import 'history_screen.dart';
 import 'memory_screen.dart';
 import 'skills_screen.dart';
+import 'theme_screen.dart';
 import 'vault_screen.dart';
 import 'vision_settings_screen.dart';
+import '../theme/theme_ext.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -269,7 +271,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Card(
               child: ListTile(
                 leading: _checkingExternal
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
@@ -279,7 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ? Icons.verified_user
                             : Icons.folder_open,
                         color: _externalGranted
-                            ? Colors.green
+                            ? context.appPalette.success
                             : Theme.of(context).colorScheme.primary,
                       ),
                 title: const Text('所有文件访问权限'),
@@ -293,7 +295,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 trailing: _checkingExternal
                     ? null
                     : _externalGranted
-                        ? const Icon(Icons.check, color: Colors.green)
+                        ? Icon(Icons.check, color: context.appPalette.success)
                         : TextButton(
                             onPressed: _requestExternalPermission,
                             child: const Text('去授权'),
@@ -377,6 +379,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const VaultScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.palette_outlined),
+                    title: const Text('主题'),
+                    subtitle: const Text('配色方案 + 明暗模式'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ThemeScreen()),
                       );
                     },
                   ),

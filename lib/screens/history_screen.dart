@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../main.dart' show resumeSessionHandler;
 import '../tools/session_search_tool.dart' show sessionDb;
+import '../theme/theme_ext.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -128,10 +129,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         title: const Text('删除会话'),
         content: const Text('确定删除这个会话吗？此操作不可恢复。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('取消')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(backgroundColor: context.appPalette.danger),
             child: const Text('删除'),
           ),
         ],
@@ -210,13 +211,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 : _searchHits != null
                     ? _buildSearchResults()
                     : _sessions.isEmpty
-                        ? const Center(
+                        ? Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.forum_outlined, size: 56, color: Colors.grey),
+                                Icon(Icons.forum_outlined, size: 56, color: context.appPalette.textSecondary),
                                 SizedBox(height: 12),
-                                Text('暂无历史会话', style: TextStyle(color: Colors.grey)),
+                                Text('暂无历史会话', style: TextStyle(color: context.appPalette.textSecondary)),
                               ],
                             ),
                           )
@@ -246,19 +247,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           if (v == 'delete') _deleteSession(id);
                         },
                         itemBuilder: (_) => [
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'continue',
                             child: ListTile(
-                              leading: Icon(Icons.play_arrow, color: Colors.teal),
+                              leading: Icon(Icons.play_arrow, color: context.appPalette.primary),
                               title: Text('继续聊天'),
                               contentPadding: EdgeInsets.zero,
                               dense: true,
                             ),
                           ),
-                          const PopupMenuItem(
+                          PopupMenuItem(
                             value: 'delete',
                             child: ListTile(
-                              leading: Icon(Icons.delete_outline, color: Colors.red),
+                              leading: Icon(Icons.delete_outline, color: context.appPalette.danger),
                               title: Text('删除'),
                               contentPadding: EdgeInsets.zero,
                               dense: true,
@@ -280,8 +281,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget _buildSearchResults() {
     final hits = _searchHits ?? {};
     if (hits.isEmpty) {
-      return const Center(
-        child: Text('没有找到匹配的会话', style: TextStyle(color: Colors.grey)),
+      return Center(
+        child: Text('没有找到匹配的会话', style: TextStyle(color: context.appPalette.textSecondary)),
       );
     }
     // 按 _sessions 顺序显示命中会话。
@@ -309,7 +310,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   snippets.take(2).join(' / '),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12, color: Colors.teal),
+                  style: TextStyle(fontSize: 12, color: context.appPalette.primary),
                 ),
             ],
           ),
@@ -384,14 +385,14 @@ class _SessionDetailScreenState extends State<_SessionDetailScreen> {
                       alignment: Alignment.center,
                       child: Container(
                         margin: const EdgeInsets.symmetric(vertical: 3),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                        padding: EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                         decoration: BoxDecoration(
-                          color: Colors.grey.withValues(alpha: 0.15),
+                          color: context.appPalette.textSecondary.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: Text(
                           '🔧 $toolName',
-                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                          style: TextStyle(fontSize: 11, color: context.appPalette.textSecondary),
                         ),
                       ),
                     );
@@ -405,8 +406,8 @@ class _SessionDetailScreenState extends State<_SessionDetailScreen> {
             icon: const Icon(Icons.play_arrow),
             label: const Text('继续这个对话'),
             style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-              backgroundColor: Colors.teal,
+              minimumSize: Size.fromHeight(48),
+              backgroundColor: context.appPalette.primary,
             ),
           ),
         ),

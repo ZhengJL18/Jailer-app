@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../services/vault_service.dart';
+import '../theme/theme_ext.dart';
 
 class VaultScreen extends StatefulWidget {
   const VaultScreen({super.key});
@@ -170,11 +171,11 @@ class _VaultScreenState extends State<VaultScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Hermes 官方云保险柜：备份用你的密钥 AES 加密，'
                           '服务器只存密文，看不到内容。柜号（1~100）是存储槽位。'
                           '服务器地址默认官方，可改成自建服务器。',
-                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                          style: TextStyle(fontSize: 13, color: context.appPalette.textSecondary),
                         ),
                         const SizedBox(height: 12),
                         TextField(
@@ -249,12 +250,12 @@ class _VaultScreenState extends State<VaultScreen> {
                                 label: const Text('上传备份'),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Expanded(
                               child: FilledButton.icon(
                                 onPressed: _busy ? null : _download,
                                 style: FilledButton.styleFrom(
-                                  backgroundColor: Colors.teal,
+                                  backgroundColor: context.appPalette.primary,
                                 ),
                                 icon: const Icon(Icons.download),
                                 label: const Text('下载恢复'),

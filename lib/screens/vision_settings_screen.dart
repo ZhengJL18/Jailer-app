@@ -3,6 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../theme/theme_ext.dart';
 
 class VisionSettingsScreen extends StatefulWidget {
   const VisionSettingsScreen({super.key});
@@ -72,10 +73,10 @@ class _VisionSettingsScreenState extends State<VisionSettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           '配置 vision_analyze 用的多模态模型。'
                           '支持 OpenAI 兼容的视觉接口（如 Qwen-VL、Gemini、GPT-4V）。',
-                          style: TextStyle(fontSize: 13, color: Colors.grey),
+                          style: TextStyle(fontSize: 13, color: context.appPalette.textSecondary),
                         ),
                         const SizedBox(height: 12),
                         TextField(

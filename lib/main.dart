@@ -16,6 +16,8 @@ import 'llm/openai_llm.dart';
 import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
+import 'theme/theme_ext.dart';
+import 'theme/theme_provider.dart';
 import 'tools/clarify_tool.dart';
 import 'tools/company_tool.dart';
 import 'tools/context_retriever.dart';
@@ -34,8 +36,12 @@ import 'tools/vision_tool.dart';
 import 'tools/web_tools.dart';
 import 'widgets/markdown_math.dart';
 
+/// 全局主题控制器（设置页/切换入口共用）。
+ThemeController themeController = ThemeController();
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  themeController.load();
   runApp(const JailerApp());
 }
 
@@ -48,13 +54,21 @@ class JailerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Hermes',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
-      home: const ChatScreen(),
+    // 监听主题 + 明暗，任一变化 → 整树 rebuild（ThemeExtension 全量替换）。
+    return ValueListenableBuilder(
+      valueListenable: themeController.themeNotifier,
+      builder: (context, theme, child) {
+        return ValueListenableBuilder(
+          valueListenable: themeController.brightnessNotifier,
+          builder: (context, brightness, child) {
+            return MaterialApp(
+              title: 'Hermes',
+              theme: themeController.themeData,
+              home: const ChatScreen(),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -802,8 +816,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                     : Icons.home,
                         size: 18,
                         color: _workflowId == w.id
-                            ? Colors.teal
-                            : Colors.grey,
+                            ? context.appPalette.primary
+                            : context.appPalette.textSecondary,
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -815,16 +829,16 @@ class _ChatScreenState extends State<ChatScreen> {
                               children: [
                                 Text(w.name),
                                 if (_workflowId == w.id) ...[
-                                  const SizedBox(width: 6),
-                                  const Icon(Icons.check,
-                                      size: 14, color: Colors.teal),
+                                  SizedBox(width: 6),
+                                  Icon(Icons.check,
+                                      size: 14, color: context.appPalette.primary),
                                 ],
                               ],
                             ),
                             Text(
                               w.description,
-                              style: const TextStyle(
-                                  fontSize: 11, color: Colors.grey),
+                              style: TextStyle(
+                                  fontSize: 11, color: context.appPalette.textSecondary),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -836,11 +850,11 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
             ],
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: EdgeInsets.symmetric(horizontal: 8),
               child: Icon(Icons.tune, size: 20,
                   color: _currentWorkflow.id == 'coding'
-                      ? Colors.teal
-                      : Colors.grey),
+                      ? context.appPalette.primary
+                      : context.appPalette.textSecondary),
             ),
           ),
           // 更多菜单：计划/GitHub/设置（收纳二级入口）。
@@ -858,50 +872,50 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 case 'settings':
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    MaterialPageRoute(builder: (_) => SettingsScreen()),
                   );
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'new_session',
                 child: Row(
                   children: [
-                    Icon(Icons.add_comment, size: 18, color: Colors.grey),
+                    Icon(Icons.add_comment, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('新建会话'),
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
+              PopupMenuDivider(),
               PopupMenuItem(
                 value: 'plan',
                 child: Row(
                   children: [
                     Icon(_planMode ? Icons.check_circle : Icons.rule,
                         size: 18,
-                        color: _planMode ? Colors.teal : Colors.grey),
+                        color: _planMode ? context.appPalette.primary : context.appPalette.textSecondary),
                     const SizedBox(width: 8),
                     Text(_planMode ? '计划模式（开）' : '计划模式（关）'),
                   ],
                 ),
               ),
-              const PopupMenuDivider(),
-              const PopupMenuItem(
+              PopupMenuDivider(),
+              PopupMenuItem(
                 value: 'github',
                 child: Row(
                   children: [
-                    Icon(Icons.code, size: 18, color: Colors.grey),
+                    Icon(Icons.code, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('GitHub'),
                   ],
                 ),
               ),
-              const PopupMenuItem(
+              PopupMenuItem(
                 value: 'settings',
                 child: Row(
                   children: [
-                    Icon(Icons.settings, size: 18, color: Colors.grey),
+                    Icon(Icons.settings, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('设置'),
                   ],
@@ -919,14 +933,14 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           Expanded(
             child: _messages.isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 32),
                       child: Text(
                         'Hermes —— 沙盒内的 agent。\n输入任务试试，'
                         '比如：在 notes 目录写一首关于安卓的俳句并读给我看',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey),
+                        style: TextStyle(color: context.appPalette.textSecondary),
                       ),
                     ),
                   )
@@ -1015,24 +1029,24 @@ class _ChatScreenState extends State<ChatScreen> {
         if (m.toolName == 'plan_approval') {
           return Container(
             margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: Colors.teal, width: 1.2),
+              border: Border.all(color: context.appPalette.primary, width: 1.2),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.rule, color: Colors.teal, size: 16),
+                    Icon(Icons.rule, color: context.appPalette.primary, size: 16),
                     SizedBox(width: 6),
                     Text('计划已生成，是否执行？',
                         style: TextStyle(fontWeight: FontWeight.w600)),
                   ],
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -1040,7 +1054,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         onPressed: () {
                           _executePlan(_pendingTask ?? '继续');
                         },
-                        style: FilledButton.styleFrom(backgroundColor: Colors.teal),
+                        style: FilledButton.styleFrom(backgroundColor: context.appPalette.primary),
                         child: const Text('批准并执行'),
                       ),
                     ),
