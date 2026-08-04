@@ -224,7 +224,7 @@ packages:
     source: hosted
     version: "0.5.4"
   git2dart_binaries:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: git2dart_binaries
       sha256: "2814008a06f32a89628dc87fe7436cd00b1b7a9895e58f3caa8bdb7bcc290981"

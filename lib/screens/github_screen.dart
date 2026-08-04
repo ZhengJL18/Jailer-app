@@ -176,6 +176,7 @@ class _GitHubScreenState extends State<GitHubScreen>
         child: CircularProgressIndicator(),
       ),
     );
+    await ensureGitSsl();
     final result = gitClone(
       url: repo.cloneUrl ?? 'https://github.com/${repo.fullName}.git',
       localPath: destDir,

@@ -4,9 +4,33 @@
 /// 覆盖 agent 写代码核心操作 + GitHub 远程同步。
 library;
 
+import 'dart:io';
+
 import 'package:git2dart/git2dart.dart';
+import 'package:git2dart_binaries/git2dart_binaries.dart'
+    show AndroidSSLHelper;
 
 import 'registry.dart';
+
+bool _sslInitialized = false;
+
+/// 初始化 libgit2 的 SSL 证书配置（Android 必需）。
+///
+/// Android 系统证书存储不在标准路径，libgit2 默认找不到 CA → HTTPS 报
+/// "SSL certificate invalid"。git2dart_binaries 打包了 cacert.pem，需手动
+/// 提取并设置。顺序：先触发 libgit2 init，再提取证书，再 setSSLCertLocations。
+Future<void> ensureGitSsl() async {
+  if (_sslInitialized) return;
+  if (Platform.isAndroid) {
+    // 1. 触发 libgit2 初始化（任何静态访问都会做）。
+    Libgit2.version;
+    // 2. 提取打包的 CA bundle 到 cache。
+    final certPath = await AndroidSSLHelper.initialize();
+    // 3. 配置 libgit2 使用它。
+    Libgit2.setSSLCertLocations(file: certPath);
+  }
+  _sslInitialized = true;
+}
 
 /// libgit2 版本（验证加载）。
 String gitVersion() {
@@ -459,32 +483,41 @@ void registerGitTools() {
     name: 'git_clone',
     toolset: 'git',
     schema: _gitCloneSchema,
-    handler: (args, [kwargs]) => gitClone(
-          url: _arg(args, 'url'),
-          localPath: _arg(args, 'local_path'),
-          token: args['token'] as String?,
-        ),
+    handler: (args, [kwargs]) async {
+      await ensureGitSsl();
+      return gitClone(
+        url: _arg(args, 'url'),
+        localPath: _arg(args, 'local_path'),
+        token: args['token'] as String?,
+      );
+    },
     emoji: '🐙',
   );
   registry.register(
     name: 'git_push',
     toolset: 'git',
     schema: _gitPushSchema,
-    handler: (args, [kwargs]) => gitPush(
-          path: _arg(args, 'path'),
-          token: args['token'] as String?,
-          branch: _arg(args, 'branch', 'master'),
-        ),
+    handler: (args, [kwargs]) async {
+      await ensureGitSsl();
+      return gitPush(
+        path: _arg(args, 'path'),
+        token: args['token'] as String?,
+        branch: _arg(args, 'branch', 'master'),
+      );
+    },
     emoji: '🐙',
   );
   registry.register(
     name: 'git_pull',
     toolset: 'git',
     schema: _gitPullSchema,
-    handler: (args, [kwargs]) => gitPull(
-          path: _arg(args, 'path'),
-          token: args['token'] as String?,
-        ),
+    handler: (args, [kwargs]) async {
+      await ensureGitSsl();
+      return gitPull(
+        path: _arg(args, 'path'),
+        token: args['token'] as String?,
+      );
+    },
     emoji: '🐙',
   );
 }
