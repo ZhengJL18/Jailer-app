@@ -101,6 +101,30 @@ class JailerAgent {
     this.sessionId,
   }) : iterationBudget = IterationBudget(maxIterations);
 
+  /// 把分类后的 API 错误转成用户可读的中文提示。
+  String _friendlyApiError(ClassifiedError classified, String raw) {
+    switch (classified.reason) {
+      case FailoverReason.auth:
+        return '认证失败（API key 无效或过期），请检查设置里的 API key。';
+      case FailoverReason.billing:
+        return '额度不足或计费问题，请检查账户余额。';
+      case FailoverReason.rateLimit:
+        return '请求过于频繁被限流，已重试仍失败，请稍后再试。';
+      case FailoverReason.overloaded:
+        return '模型服务繁忙，请稍后再试。';
+      case FailoverReason.payloadTooLarge:
+        return '请求过大（上下文太长），请精简内容。';
+      case FailoverReason.serverError:
+        return '模型服务出错（5xx），已重试仍失败。';
+      case FailoverReason.clientError:
+        return '请求参数被拒绝（可能是消息格式问题）。';
+      case FailoverReason.network:
+        return '网络错误，请检查连接。';
+      default:
+        return raw;
+    }
+  }
+
   /// 运行一次完整对话（带工具调用直到完成）。
   ///
   /// [conversationHistory] 之前对话消息（可选）。
@@ -135,9 +159,14 @@ class JailerAgent {
         final restored = <Map<String, dynamic>>[];
         for (final m in stored) {
           final role = m['role'] as String? ?? 'user';
+          final rawContent = m['content'] as String? ?? '';
           final msg = <String, dynamic>{
             'role': role,
-            if (m['content'] != null) 'content': m['content'],
+            // assistant 消息 content 兜底空串（防 "content or tool_calls must
+            // be sent"；tool 消息需空 content 用于占位）。
+            'content': role == 'tool' && rawContent.isEmpty
+                ? ' '
+                : rawContent,
           };
           if (role == 'tool') {
             msg['tool_call_id'] = m['tool_call_id'] ?? '';
@@ -215,10 +244,12 @@ class JailerAgent {
           // 分类错误，决定是否重试。
           final classified = classifyApiError(e);
           lastError = e.toString();
+          debugPrint('[Agent] API 调用失败 (attempt $attempt): $lastError');
           if (!classified.retryable || attempt >= maxRetries) {
             failed = true;
+            final friendly = _friendlyApiError(classified, lastError);
             return ConversationResult(
-              finalResponse: 'API call failed: $lastError',
+              finalResponse: 'API 调用失败：$friendly\n（原始错误：$lastError）',
               messages: messages,
               apiCalls: apiCallCount,
               completed: false,

@@ -51,9 +51,12 @@ class LlmTurnResult {
 
   /// 转 OpenAI assistant message（用于回填对话历史）。
   Map<String, dynamic> toAssistantMessage() {
+    // OpenAI 兼容 API 要求 assistant 消息必须含 content 或 tool_calls。
+    // 空 turn（content=null 且无 tool_calls）会导致 "content or tool_calls
+    // must be sent" 400。content 兜底为空串。
     return {
       'role': 'assistant',
-      'content': content,
+      'content': content ?? '',
       if (toolCalls.isNotEmpty)
         'tool_calls': [for (final tc in toolCalls) tc.toJson()],
     };
