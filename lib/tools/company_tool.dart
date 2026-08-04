@@ -25,9 +25,9 @@ Future<String> _handleDepartment(Map<String, dynamic> args, [Map<String, dynamic
   if (task.isEmpty) {
     return toolError('delegate_to_department: missing task');
   }
-  if (findDepartment(department) == null) {
+  if (findActiveDepartment(department) == null) {
     return toolError('delegate_to_department: 未知部门 "$department"。'
-        '可用：${presetDepartments.map((d) => d.id).join(', ')}');
+        '可用：${activeDepartments.map((d) => d.id).join(', ')}');
   }
   final depth = (args['_depth'] as int?) ?? 0;
   try {

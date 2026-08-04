@@ -365,12 +365,12 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// 部门执行器（公司模式）：部门内各角色并行执行任务，汇总结果给 CEO。
+  /// 部门执行器（公司模式）：部门内角色先讨论再分工执行，汇总给 CEO。
   ///
   /// [department] 部门 id；[task] 任务；[depth] 当前层数。
-  /// 每个角色 = 一个子代理，带着角色人设独立跑任务，结果汇总。
+  /// 流程：1) 角色间一轮讨论（互看意见）2) 各角色分工执行 3) 经理汇总。
   Future<String> _runDepartment(String department, String task, int depth) async {
-    final dep = findDepartment(department);
+    final dep = findActiveDepartment(department);
     if (dep == null) {
       return '未知部门：$department';
     }
@@ -380,13 +380,40 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     final llm = OpenAiLlmClient(config: config.toLlmConfig());
 
-    // 部门内各角色并行跑子任务（各带角色人设）。
+    // 第 1 步：角色间讨论一轮（各自给专业意见，互看后补充/反驳）。
+    String discussionBlock = '';
+    if (dep.roles.length > 1) {
+      final opinions = await Future.wait(
+        dep.roles.map((role) async {
+          try {
+            final turn = await llm.chatStream(messages: [
+              {
+                'role': 'system',
+                'content': '你是「${dep.name}」的$role。围绕部门任务给出你的'
+                    '专业意见，重点是你视角下的关键点。用中文。',
+              },
+              {'role': 'user', 'content': '部门任务：$task'},
+            ]);
+            return '「$role」：${turn.content ?? '(无意见)'}';
+          } catch (e) {
+            return '「$role」：（讨论失败 $e）';
+          }
+        }),
+      );
+      discussionBlock = opinions.join('\n');
+    }
+
+    // 第 2 步：各角色带着讨论结果分工执行（角色子代理可用工具，depth+1 下探）。
+    final prevDept = departmentHandler;
+    final prevDelegate = delegateHandler;
+    departmentHandler = (d, t, _) => _runDepartment(d, t, depth + 1);
+    delegateHandler = (t, ts, _) => _runSubAgent(t, ts, depth + 1);
     final roleOutputs = await Future.wait(
       dep.roles.map((role) async {
         final roleAgent = JailerAgent(
           llm: llm,
-          systemPrompt: '你是「${dep.name}」的$role。$role 负责在任务中贡献你的'
-              '专业能力。独立完成分配的工作，可调用工具。用中文。',
+          systemPrompt: '你是「${dep.name}」的$role。参考团队讨论，完成你的'
+              '分工工作。可调用工具。用中文。',
           toolDefinitionsProvider: () => getToolDefinitions(
             enabledToolsets: dep.toolsets,
             quietMode: true,
@@ -394,15 +421,19 @@ class _ChatScreenState extends State<ChatScreen> {
           maxIterations: 20,
         );
         try {
-          final result = await roleAgent.runConversation(task);
+          final result = await roleAgent.runConversation(
+            '$task\n\n团队讨论：\n$discussionBlock',
+          );
           return '「$role」：${result.finalResponse ?? '(无输出)'}';
         } catch (e) {
           return '「$role」：执行失败 $e';
         }
       }),
     );
+    departmentHandler = prevDept;
+    delegateHandler = prevDelegate;
 
-    // 主模型（部门经理）汇总各角色输出。
+    // 第 3 步：主模型（部门经理）汇总各角色输出给 CEO。
     try {
       final summaryTurn = await llm.chatStream(messages: [
         {
@@ -658,6 +689,10 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       registerMemoryTool(baseDir: dir);
       _memory = MemoryManager(store: memoryStore!);
+    } catch (_) {}
+    // 自定义部门（公司模式）。
+    try {
+      await loadCustomDepartments();
     } catch (_) {}
     // 会话库。
     try {

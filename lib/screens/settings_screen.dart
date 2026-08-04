@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../config/jailer_config.dart';
 import '../services/storage_permission.dart';
+import 'department_screen.dart';
 import 'fast_model_screen.dart';
 import 'history_screen.dart';
 import 'skills_screen.dart';
@@ -348,6 +349,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const FastModelScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.apartment),
+                    title: const Text('部门管理'),
+                    subtitle: const Text('配置公司模式的部门（角色/工具）'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const DepartmentScreen()),
                       );
                     },
                   ),
