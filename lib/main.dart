@@ -920,8 +920,15 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: _messages.isEmpty
                 ? const Center(
-                    child: Text('Hermes —— 沙盒内的 agent。\n输入任务试试，'
-                        '比如：在 notes 目录写一首关于安卓的俳句并读给我看'),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 32),
+                      child: Text(
+                        'Hermes —— 沙盒内的 agent。\n输入任务试试，'
+                        '比如：在 notes 目录写一首关于安卓的俳句并读给我看',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(12),
