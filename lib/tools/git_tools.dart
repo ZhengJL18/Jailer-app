@@ -237,6 +237,25 @@ List<dynamic> _statusEntries(Repository repo) {
   return changed.toSet().toList();
 }
 
+/// git diff：工作区未暂存改动（indexToWorkdir）的 unified diff。
+String gitDiff({required String path, String? target}) {
+  try {
+    final repo = Repository.open(path);
+    final diff = Diff.indexToWorkdir(repo: repo, index: repo.index);
+    final patches = diff.patches;
+    if (patches.isEmpty) {
+      return 'No unstaged changes.';
+    }
+    final parts = <String>[];
+    for (final p in patches) {
+      parts.add(p.text);
+    }
+    return parts.join('\n');
+  } catch (e) {
+    return toolError('git diff failed: $e');
+  }
+}
+
 /// git clone：克隆远程仓库到本地。
 ///
 /// [token] 提供时用 HTTPS + PAT（UserPass username 用 'x-access-token'）。
@@ -480,6 +499,13 @@ void registerGitTools() {
     emoji: '🐙',
   );
   registry.register(
+    name: 'git_diff',
+    toolset: 'git',
+    schema: _gitDiffSchema,
+    handler: (args, [kwargs]) => gitDiff(path: _arg(args, 'path')),
+    emoji: '🐙',
+  );
+  registry.register(
     name: 'git_clone',
     toolset: 'git',
     schema: _gitCloneSchema,
@@ -521,6 +547,20 @@ void registerGitTools() {
     emoji: '🐙',
   );
 }
+
+const Map<String, dynamic> _gitDiffSchema = {
+  'name': 'git_diff',
+  'description':
+      'Show the unified diff of unstaged working-tree changes. '
+      'Use before commit to review what changed.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'path': {'type': 'string', 'description': 'Repository directory'},
+    },
+    'required': ['path'],
+  },
+};
 
 const Map<String, dynamic> _gitCloneSchema = {
   'name': 'git_clone',

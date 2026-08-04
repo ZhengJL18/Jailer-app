@@ -12,6 +12,9 @@ import 'llm/openai_llm.dart';
 import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
+import 'tools/clarify_tool.dart';
+import 'tools/cron_tools.dart';
+import 'tools/delegate_tool.dart';
 import 'tools/file_tools.dart';
 import 'tools/git_tools.dart';
 import 'tools/memory_manager.dart';
@@ -20,6 +23,7 @@ import 'tools/model_tools.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
 import 'tools/todo_tool.dart';
+import 'tools/vision_tool.dart';
 import 'tools/web_tools.dart';
 import 'widgets/markdown_math.dart';
 
@@ -94,6 +98,14 @@ class _ChatScreenState extends State<ChatScreen> {
     registerTodoTool();
     registerSessionSearchTool();
     registerGitTools();
+    registerClarifyTool();
+    clarifyHandler = _showClarifyDialog;
+    registerDelegateTool();
+    delegateHandler = _runSubAgent;
+    registerCronTools();
+    cronFireHandler = _fireCronJob;
+    startCronScheduler();
+    registerVisionTool();
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     _initCwd();
@@ -128,6 +140,118 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
     if (!mounted) return;
     setState(() {});
+  }
+
+  /// delegate 回调：子 agent 独立执行任务，返回结果摘要。
+  Future<String> _runSubAgent(String task, List<String>? toolsets) async {
+    final config = await JailerConfig.load();
+    if (config == null) {
+      return '子任务未执行：AI 未配置';
+    }
+    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    final subAgent = JailerAgent(
+      llm: llm,
+      systemPrompt: '你是 Hermes 的子代理。独立完成给定任务并简洁汇报结果。'
+          '用中文。',
+      toolDefinitionsProvider: () => getToolDefinitions(
+        enabledToolsets: toolsets ?? const ['file', 'web', 'git'],
+        quietMode: true,
+      ),
+      maxIterations: 20,
+    );
+    try {
+      final result = await subAgent.runConversation(task);
+      return result.finalResponse ?? '(子代理无输出)';
+    } catch (e) {
+      return '子任务失败：$e';
+    }
+  }
+
+  /// cron 触发回调：执行任务并把结果作为 assistant 消息加入对话。
+  Future<void> _fireCronJob(CronJob job) async {
+    if (!mounted) return;
+    // 显示 cron 触发的提示。
+    _addAssistant('⏰ [定时任务 ${job.id}] ${job.schedule}\n任务：${job.task}');
+    final result = await _runSubAgent(job.task, const ['file', 'web', 'git']);
+    if (!mounted) return;
+    _addAssistant('[定时任务完成]\n$result');
+  }
+
+  /// clarify 回调：弹对话框收集用户答案。
+  Future<String> _showClarifyDialog(
+    String question,
+    List<String> choices,
+    bool multiSelect,
+  ) async {
+    final controller = TextEditingController();
+    final selected = <String>{};
+    final answer = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Hermes 想确认一下'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(question),
+              ),
+              if (choices.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                for (final c in choices)
+                  CheckboxListTile(
+                    title: Text(c),
+                    value: selected.contains(c),
+                    dense: true,
+                    onChanged: (v) => setDialogState(() {
+                      if (multiSelect) {
+                        if (v == true) {
+                          selected.add(c);
+                        } else {
+                          selected.remove(c);
+                        }
+                      } else {
+                        selected
+                          ..clear()
+                          ..add(c);
+                      }
+                    }),
+                  ),
+              ],
+              const SizedBox(height: 8),
+              TextField(
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: '或直接输入回答',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, ''),
+              child: const Text('跳过'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final typed = controller.text.trim();
+                if (typed.isNotEmpty) {
+                  Navigator.pop(ctx, typed);
+                } else if (selected.isNotEmpty) {
+                  Navigator.pop(ctx, selected.join('、'));
+                } else {
+                  Navigator.pop(ctx, '');
+                }
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+    return answer ?? '';
   }
 
   /// 构建系统提示（含记忆 + skill 索引）。
@@ -244,6 +368,10 @@ class _ChatScreenState extends State<ChatScreen> {
           'skills',
           'session_search',
           'git',
+          'clarify',
+          'delegate',
+          'cron',
+          'vision',
         ],
         quietMode: true,
       ),

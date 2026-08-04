@@ -178,10 +178,10 @@ Map<String, ToolsetDef> toolsetDefs = {
   'git': ToolsetDef(
     description:
         'Git version control via embedded libgit2: init, status, add, '
-        'commit, log, branch, clone, push, pull',
+        'commit, log, branch, clone, push, pull, diff',
     tools: [
       'git_version', 'git_init', 'git_status', 'git_add', 'git_commit',
-      'git_log', 'git_branch', 'git_clone', 'git_push', 'git_pull',
+      'git_log', 'git_branch', 'git_diff', 'git_clone', 'git_push', 'git_pull',
     ],
   ),
   'tts': ToolsetDef(
@@ -207,15 +207,22 @@ Map<String, ToolsetDef> toolsetDefs = {
     description: 'Search and recall past conversations with summarization',
     tools: ['session_search'],
   ),
+  'clarify': ToolsetDef(
+    description: 'Ask the user a clarifying question when a task is ambiguous',
+    tools: ['clarify'],
+  ),
+  'delegate': ToolsetDef(
+    description: 'Delegate a sub-task to an independent sub-agent',
+    tools: ['delegate_task'],
+  ),
+  'cron': ToolsetDef(
+    description: 'Recurring scheduled tasks that run while the app is open',
+    tools: ['cron_create', 'cron_list', 'cron_delete'],
+  ),
   'project': ToolsetDef(
     description:
         'Desktop Projects — create/switch named workspaces (GUI sessions only)',
     tools: ['project_list', 'project_create', 'project_switch'],
-  ),
-  'clarify': ToolsetDef(
-    description:
-        'Ask the user clarifying questions (multiple-choice or open-ended)',
-    tools: ['clarify'],
   ),
   'code_execution': ToolsetDef(
     description:

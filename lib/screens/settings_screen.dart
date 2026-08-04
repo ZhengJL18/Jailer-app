@@ -10,6 +10,7 @@ import '../config/jailer_config.dart';
 import '../services/storage_permission.dart';
 import 'history_screen.dart';
 import 'skills_screen.dart';
+import 'vision_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -320,6 +321,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const SkillsScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.visibility),
+                    title: const Text('视觉模型'),
+                    subtitle: const Text('配置 vision_analyze 的图像分析模型'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const VisionSettingsScreen()),
                       );
                     },
                   ),
