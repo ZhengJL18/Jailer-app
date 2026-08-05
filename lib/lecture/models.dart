@@ -46,6 +46,8 @@ class LectureSession {
     required this.audioPath,
     required this.createdAt,
     required this.status,
+    this.subjectId,
+    this.durationSec = 0,
   });
 
   final String id;
@@ -54,15 +56,71 @@ class LectureSession {
   final DateTime createdAt;
   final LectureStatus status;
 
-  LectureSession copyWith({LectureStatus? status, String? title}) {
+  /// 所属科目 id；null 表示未分类。
+  final String? subjectId;
+
+  /// 录音时长（秒）。
+  final int durationSec;
+
+  LectureSession copyWith({
+    LectureStatus? status,
+    String? title,
+    String? subjectId,
+    int? durationSec,
+  }) {
     return LectureSession(
       id: id,
       title: title ?? this.title,
       audioPath: audioPath,
       createdAt: createdAt,
       status: status ?? this.status,
+      subjectId: subjectId ?? this.subjectId,
+      durationSec: durationSec ?? this.durationSec,
     );
   }
+}
+
+/// 一个科目及其专属热词库。
+class LectureSubject {
+  const LectureSubject({
+    required this.id,
+    required this.name,
+    required this.hotwords,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final List<String> hotwords;
+  final DateTime createdAt;
+
+  LectureSubject copyWith({String? name, List<String>? hotwords}) {
+    return LectureSubject(
+      id: id,
+      name: name ?? this.name,
+      hotwords: hotwords ?? this.hotwords,
+      createdAt: createdAt,
+    );
+  }
+}
+
+/// 录音文件的元数据（区别于会话：会话可重命名/归档，录音有独立音频信息）。
+class RecordingInfo {
+  const RecordingInfo({
+    required this.sessionId,
+    required this.title,
+    required this.audioPath,
+    required this.createdAt,
+    required this.durationSec,
+    required this.hasTranscript,
+  });
+
+  final String sessionId;
+  final String title;
+  final String audioPath;
+  final DateTime createdAt;
+  final int durationSec;
+  final bool hasTranscript;
 }
 
 /// DeepSeek 生成的结构化课堂笔记。
