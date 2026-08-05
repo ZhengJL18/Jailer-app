@@ -1,5 +1,5 @@
-# Build APK on every push to master / PR.
-# Artifact downloadable from GitHub Actions → Summary → Artifacts.
+# Build APK and publish GitHub Release on every push to master.
+# The app checks the latest release on startup and self-updates.
 name: Build APK
 
 on:
@@ -12,6 +12,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 发 GitHub Release 需要 contents: write（仓库默认 token 是 read-only）
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -31,13 +34,29 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      # release 构建：用仓库内的 jailer-release.jks 固定签名，
-      # 「所有文件访问」权限（MANAGE_EXTERNAL_STORAGE）需要 release 签名才完整。
+      # release 构建：用仓库内的 jailer-release.jks 固定签名（debug/release 同签名，
+      # 覆盖安装不丢数据）。--build-number 用 github.run_number 单调递增 →
+      # versionCode 每次 push 必升，App 端据此检测到新版本。
       - name: Build APK (release)
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number=${{ github.run_number }}
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: hermes-app-release
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      # push 才发 release（PR 只构建验证不发布）。
+      - name: Publish GitHub Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0+${{ github.run_number }}
+          name: Hermes v1.0.0+${{ github.run_number }}
+          body: |
+            自动构建发布（commit ${{ github.sha }}）
+
+            ${{ github.event.head_commit.message }}
+          files: build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: true

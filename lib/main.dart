@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'agent/agent.dart';
 import 'agent/company.dart';
@@ -16,6 +17,7 @@ import 'llm/openai_llm.dart';
 import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
+import 'services/update_service.dart';
 import 'theme/theme_ext.dart';
 import 'theme/theme_provider.dart';
 import 'tools/clarify_tool.dart';
@@ -144,6 +146,69 @@ class _ChatScreenState extends State<ChatScreen> {
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     _initCwd();
+    // 自动更新检查（fire-and-forget，失败静默不打扰）。
+    _checkUpdate();
+  }
+
+  /// 启动时静默检查更新，有新版 → 弹窗提示。
+  Future<void> _checkUpdate() async {
+    final info = await UpdateService.checkForUpdate();
+    if (!mounted || info == null) return;
+    _showUpdateDialog(info);
+  }
+
+  void _showUpdateDialog(UpdateInfo info) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text('发现新版本 v${info.version}'),
+        content: SingleChildScrollView(
+          child: Text(info.notes?.trim().isNotEmpty == true
+              ? info.notes!
+              : '有新版本可用，是否立即更新？'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _downloadAndInstall(info);
+            },
+            child: const Text('立即更新'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadAndInstall(UpdateInfo info) async {
+    if (!mounted) return;
+    // 下载进度提示。
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        content: Row(
+          children: const [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('正在下载更新…'),
+          ],
+        ),
+      ),
+    );
+    final ok = await UpdateService.downloadAndInstall(info.downloadUrl);
+    if (!mounted) return;
+    Navigator.of(context).pop(); // 关下载提示
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('下载/安装失败，请稍后重试')),
+      );
+    }
   }
 
   /// 从对话历史切回某个会话继续聊：切换 sessionId + 加载历史到 UI。
