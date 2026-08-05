@@ -137,7 +137,7 @@ Future<NoteGeneration> generateNoteMarkdown({
   sb.writeln('{"markdown": "完整笔记正文（Markdown）", "terms": ["本课出现的专业术语，用于热词库，每个不少于2字"]}');
   sb.writeln('不要输出 JSON 以外的任何内容。');
   sb.writeln('\n以下是转写全文：\n');
-  sb.write(transcript);
+  sb.write(transcriptText);
 
   final response = await http
       .post(
