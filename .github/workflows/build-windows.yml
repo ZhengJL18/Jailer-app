@@ -26,6 +26,17 @@ jobs:
       - name: Add Windows platform
         run: flutter create --platforms=windows .
 
+      # 新版 MSVC 把 <experimental/coroutine> 废弃升级成错误（STL1011），
+      # flutter_inappwebview_windows 等旧插件仍用它。在 CMake 顶部加编译
+      # 定义压制，作用于全部插件目标。
+      - name: Silence experimental coroutine deprecation
+        shell: powershell
+        run: |
+          $f = 'windows/CMakeLists.txt'
+          $c = Get-Content $f -Raw
+          $c = $c -replace '(cmake_minimum_required\(VERSION [^\r\n]+)', "`$1`r`nadd_compile_definitions(_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)"
+          Set-Content $f $c
+
       - name: Install dependencies
         run: flutter pub get
 
