@@ -279,6 +279,57 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     }
   }
 
+  /// 删除条目（长按菜单）。文件直接删，目录递归删（需确认）。
+  /// 公共目录删除同样受「所有文件访问」权限约束，未授权弹引导。
+  Future<void> _deleteEntry(FileSystemEntity e) async {
+    if (!mounted) return;
+    if (_isPublicPath(e.path) && !_externalGranted) {
+      _promptGrant();
+      return;
+    }
+    final isDir = e is Directory;
+    final name = p.basename(e.path);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('删除${isDir ? '目录' : '文件'}？'),
+        content: Text(
+          '${isDir ? '目录' : '文件'} "$name"${isDir ? ' 及其全部内容' : ''}将被永久删除，无法恢复。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      if (isDir) {
+        await (e as Directory).delete(recursive: true);
+      } else {
+        await (e as File).delete();
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已删除 $name')),
+      );
+      final dir = _currentDir;
+      if (dir != null) _open(dir); // 刷新列表。
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('删除失败：$err')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dir = _currentDir;
@@ -429,6 +480,32 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
               size: 18, color: context.appPalette.textSecondary)
           : null,
       onTap: () => _openEntry(e),
+      onLongPress: () => _showEntryMenu(e),
+    );
+  }
+
+  /// 长按菜单：删除（操作不可逆，默认藏长按里避免误触）。
+  void _showEntryMenu(FileSystemEntity e) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('删除'),
+              subtitle: Text(
+                e is Directory ? '删除整个目录及其内容' : '永久删除该文件',
+              ),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _deleteEntry(e);
+              },
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
