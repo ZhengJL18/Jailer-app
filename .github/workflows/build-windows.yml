@@ -1,0 +1,42 @@
+# Build Windows desktop release on the lecture-windows branch.
+# Artifact downloadable from GitHub Actions → Summary → Artifacts.
+name: Build Windows
+
+on:
+  push:
+    branches: [lecture-windows]
+  pull_request:
+    branches: [lecture-windows]
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      # 仓库只有 android/web 平台目录，补生成 windows 平台目录（不覆盖现有代码）。
+      - name: Add Windows platform
+        run: flutter create --platforms=windows .
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-app-windows
+          path: build/windows/x64/runner/Release/

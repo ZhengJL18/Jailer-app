@@ -14,6 +14,7 @@ import 'config/jailer_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
 import 'screens/github_screen.dart';
+import 'screens/lecture_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
 import 'theme/theme_ext.dart';
@@ -866,6 +867,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   _newSession();
                 case 'plan':
                   setState(() => _planMode = !_planMode);
+                case 'lecture':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LectureScreen()),
+                  );
                 case 'github':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const GitHubScreen()),
@@ -901,6 +906,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'lecture',
+                child: Row(
+                  children: [
+                    Icon(Icons.mic, size: 18, color: context.appPalette.textSecondary),
+                    SizedBox(width: 8),
+                    Text('课堂笔记'),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'github',
                 child: Row(
