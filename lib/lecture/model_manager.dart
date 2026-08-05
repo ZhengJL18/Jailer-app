@@ -144,7 +144,7 @@ class ModelManager {
         continue;
       }
       debugPrint('[ModelManager] downloading ${m.key}: ${m.url}');
-      await _download(m.url, target, (b, t) {
+      await _download(m.url, target, onProgress: (b, t) {
         onProgress?.call(b, t, m.localName, i + 1, total);
       });
       debugPrint('[ModelManager] done ${m.key}');
@@ -170,7 +170,7 @@ class ModelManager {
         final finalResponse = await client.send(
           http.Request('GET', Uri.parse(location)),
         );
-        await _saveBody(finalResponse, target, onProgress);
+        await _saveBody(finalResponse, target, onProgress: onProgress);
         return;
       }
       if (response.statusCode != 200) {
@@ -178,7 +178,7 @@ class ModelManager {
           'Download failed ${response.statusCode} for $url',
         );
       }
-      await _saveBody(response, target, onProgress);
+      await _saveBody(response, target, onProgress: onProgress);
     } finally {
       client.close();
     }

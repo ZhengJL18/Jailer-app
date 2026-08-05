@@ -95,7 +95,7 @@ Future<List<TranscriptSegment>> transcribeAudio({
   try {
     return await completer.future;
   } finally {
-    await replyPort.close();
+    replyPort.close();
     isolate.kill(priority: Isolate.immediate);
   }
 }
@@ -137,11 +137,12 @@ void _worker(TranscribeRequest req) {
 
     // VAD 切分语音段。
     final vad = so.VoiceActivityDetector(
-      so.VadModelConfig(
+      config: so.VadModelConfig(
         sampleRate: 16000,
         sileroVad: so.SileroVadModelConfig(model: req.models.vad),
         numThreads: req.numThreads,
       ),
+      bufferSizeInSeconds: 60,
     );
 
     // Paraformer 识别器（热词文件在本地已写好）。
@@ -302,9 +303,9 @@ class _SpkSeg {
 /// 把 ASR 段按说话人时间区间对齐，合并相邻同说话人段。
 List<TranscriptSegment> _merge(
   List<_RawSeg> raw,
-  List<_SpkSeg> spk,
-  {required int sampleRate},
-) {
+  List<_SpkSeg> spk, {
+  required int sampleRate,
+}) {
   if (raw.isEmpty) return const [];
   final out = <TranscriptSegment>[];
   TranscriptSegment? current;

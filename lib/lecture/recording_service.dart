@@ -3,8 +3,6 @@
 /// 统一录制 16kHz 单声道 WAV，直接满足 sherpa-onnx 的输入要求。
 library;
 
-import 'dart:io';
-
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -14,19 +12,17 @@ class RecordingService {
   final AudioRecorder _recorder = AudioRecorder();
 
   /// 是否正在录音。
-  bool get isRecording => _recorder.isRecording();
+  Future<bool> get isRecording => _recorder.isRecording();
 
   /// 开始录音，返回即将写入的 wav 路径。
   Future<String> start() async {
     final dir = await getApplicationDocumentsDirectory();
     final ts = DateTime.now().millisecondsSinceEpoch;
     final path = p.join(dir.path, 'recordings', 'rec_$ts.wav');
-    // Windows 平台 record 用 wavPCM；其余用 wav。两者都输出 16k mono WAV。
+    // record 6.x：AudioEncoder.wav 即 16bit PCM WAV（Windows 同样支持）。
     await _recorder.start(
-      RecordConfig(
-        encoder: Platform.isWindows
-            ? AudioEncoder.wavPCM
-            : AudioEncoder.wav,
+      const RecordConfig(
+        encoder: AudioEncoder.wav,
         sampleRate: 16000,
         numChannels: 1,
       ),
@@ -35,17 +31,17 @@ class RecordingService {
     return path;
   }
 
-  /// 停止录音，返回 wav 路径。
-  Future<String> stop() async {
+  /// 停止录音，返回 wav 路径；无权限或失败返回 null。
+  Future<String?> stop() async {
     if (await _recorder.hasPermission()) {
       return await _recorder.stop();
     }
-    return '';
+    return null;
   }
 
   /// 取消录音（丢弃文件）。
   Future<void> cancel() async {
-    if (_recorder.isRecording()) {
+    if (await _recorder.isRecording()) {
       await _recorder.cancel();
     }
   }

@@ -90,7 +90,7 @@ class _LectureScreenState extends State<LectureScreen> {
     _recordTimer?.cancel();
     final path = await _recorder.stop();
     setState(() => _isRecording = false);
-    if (path.isEmpty || !await File(path).exists()) {
+    if (path == null || path.isEmpty || !await File(path).exists()) {
       _snack('未获得录音文件');
       return;
     }
