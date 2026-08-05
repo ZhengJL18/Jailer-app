@@ -80,6 +80,93 @@ class LectureSession {
   }
 }
 
+/// 一篇 Markdown 课堂笔记（笔记软件的核心实体）。
+class Note {
+  const Note({
+    required this.id,
+    required this.subjectId,
+    required this.title,
+    required this.content,
+    required this.pinned,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String subjectId;
+  final String title;
+
+  /// Markdown 正文。
+  final String content;
+  final bool pinned;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  Note copyWith({
+    String? title,
+    String? content,
+    bool? pinned,
+    DateTime? updatedAt,
+  }) {
+    return Note(
+      id: id,
+      subjectId: subjectId,
+      title: title ?? this.title,
+      content: content ?? this.content,
+      pinned: pinned ?? this.pinned,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+}
+
+/// 音频转写状态。
+enum AudioStatus {
+  ready, // 已导入，未转写
+  transcribing, // 转写中
+  done, // 转写完成
+  failed, // 失败
+}
+
+/// 挂在一篇笔记下的音频附件。
+class NoteAudio {
+  const NoteAudio({
+    required this.id,
+    required this.noteId,
+    required this.path,
+    required this.durationSec,
+    required this.transcript,
+    required this.status,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String noteId;
+  final String path;
+  final int durationSec;
+
+  /// 转写文本（带说话人标签）。
+  final String transcript;
+  final AudioStatus status;
+  final DateTime createdAt;
+
+  NoteAudio copyWith({
+    String? transcript,
+    AudioStatus? status,
+    int? durationSec,
+  }) {
+    return NoteAudio(
+      id: id,
+      noteId: noteId,
+      path: path,
+      durationSec: durationSec ?? this.durationSec,
+      transcript: transcript ?? this.transcript,
+      status: status ?? this.status,
+      createdAt: createdAt,
+    );
+  }
+}
+
 /// 一个科目及其专属热词库。
 class LectureSubject {
   const LectureSubject({

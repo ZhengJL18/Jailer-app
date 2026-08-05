@@ -34,52 +34,9 @@ class LectureDb {
     _db = await databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: (db, version) async {
-          await db.execute('''
-            CREATE TABLE lecture_sessions (
-              id TEXT PRIMARY KEY,
-              title TEXT NOT NULL,
-              audio_path TEXT NOT NULL,
-              created_at INTEGER NOT NULL,
-              status TEXT NOT NULL,
-              subject_id TEXT,
-              duration_sec INTEGER NOT NULL DEFAULT 0
-            )
-          ''');
-          await db.execute('''
-            CREATE TABLE lecture_subjects (
-              id TEXT PRIMARY KEY,
-              name TEXT NOT NULL,
-              created_at INTEGER NOT NULL
-            )
-          ''');
-          await db.execute('''
-            CREATE TABLE lecture_hotwords (
-              subject_id TEXT NOT NULL,
-              word TEXT NOT NULL,
-              PRIMARY KEY (subject_id, word)
-            )
-          ''');
-          await db.execute('''
-            CREATE TABLE lecture_segments (
-              session_id TEXT NOT NULL,
-              speaker INTEGER NOT NULL,
-              start_ms REAL NOT NULL,
-              end_ms REAL NOT NULL,
-              text TEXT NOT NULL
-            )
-          ''');
-          await db.execute('''
-            CREATE TABLE lecture_notes (
-              session_id TEXT PRIMARY KEY,
-              summary TEXT,
-              key_points TEXT,
-              terms TEXT,
-              exam_hints TEXT,
-              questions TEXT
-            )
-          ''');
+          await _createSchemaV3(db);
         },
         onUpgrade: (db, oldV, newV) async {
           if (oldV < 2) {
@@ -102,10 +59,133 @@ class LectureDb {
               )
             ''');
           }
+          if (oldV < 3) {
+            await _createNoteSchema(db);
+          }
         },
       ),
     );
+    await _ensureNotesFts(_db!);
     return _db!;
+  }
+
+  /// v3 完整建表（全新数据库用）。
+  Future<void> _createSchemaV3(Database db) async {
+    await db.execute('''
+      CREATE TABLE lecture_sessions (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        audio_path TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        subject_id TEXT,
+        duration_sec INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE lecture_subjects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE lecture_hotwords (
+        subject_id TEXT NOT NULL,
+        word TEXT NOT NULL,
+        PRIMARY KEY (subject_id, word)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE lecture_segments (
+        session_id TEXT NOT NULL,
+        speaker INTEGER NOT NULL,
+        start_ms REAL NOT NULL,
+        end_ms REAL NOT NULL,
+        text TEXT NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE lecture_notes (
+        session_id TEXT PRIMARY KEY,
+        summary TEXT,
+        key_points TEXT,
+        terms TEXT,
+        exam_hints TEXT,
+        questions TEXT
+      )
+    ''');
+    await _createNoteSchema(db);
+  }
+
+  /// 笔记核心表（v3 新增）。
+  Future<void> _createNoteSchema(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS notes (
+        id TEXT PRIMARY KEY,
+        subject_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL DEFAULT '',
+        pinned INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS note_audio (
+        id TEXT PRIMARY KEY,
+        note_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        duration_sec INTEGER NOT NULL DEFAULT 0,
+        transcript TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'ready',
+        created_at INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_notes_subject ON notes(subject_id)');
+    await db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_note_audio_note ON note_audio(note_id)');
+  }
+
+  /// FTS5 笔记全文索引（不可用时降级 LIKE 搜索）。
+  Future<void> _ensureNotesFts(Database db) async {
+    try {
+      await db.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+          title,
+          content,
+          content='notes',
+          content_rowid='rowid'
+        )
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes
+        BEGIN
+          INSERT INTO notes_fts(rowid, title, content)
+          VALUES (new.rowid, new.title, new.content);
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS notes_fts_delete AFTER DELETE ON notes
+        BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, content)
+          VALUES ('delete', old.rowid, old.title, old.content);
+        END
+      ''');
+      await db.execute('''
+        CREATE TRIGGER IF NOT EXISTS notes_fts_update AFTER UPDATE ON notes
+        WHEN (old.title IS NOT new.title OR old.content IS NOT new.content)
+        BEGIN
+          INSERT INTO notes_fts(notes_fts, rowid, title, content)
+          VALUES ('delete', old.rowid, old.title, old.content);
+          INSERT INTO notes_fts(rowid, title, content)
+          VALUES (new.rowid, new.title, new.content);
+        END
+      ''');
+    } catch (_) {
+      // FTS5 不可用时降级 LIKE 搜索。
+    }
   }
 
   /// 保存一次完整会话（会话 + 段 + 可选笔记）。
@@ -380,5 +460,229 @@ class LectureDb {
       'exam_hints': jsonEncode(note.examHints),
       'questions': jsonEncode(note.questions),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ── 笔记（v3 核心）────────────────────────────────────
+
+  /// 在科目下新建笔记，返回 Note。
+  Future<Note> createNote({
+    required String subjectId,
+    String? title,
+    String content = '',
+  }) async {
+    final db = await _open();
+    final now = DateTime.now();
+    final id = now.millisecondsSinceEpoch.toString();
+    await db.insert('notes', {
+      'id': id,
+      'subject_id': subjectId,
+      'title': (title == null || title.trim().isEmpty)
+          ? '未命名笔记'
+          : title.trim(),
+      'content': content,
+      'pinned': 0,
+      'created_at': now.millisecondsSinceEpoch,
+      'updated_at': now.millisecondsSinceEpoch,
+    });
+    return Note(
+      id: id,
+      subjectId: subjectId,
+      title: (title == null || title.trim().isEmpty)
+          ? '未命名笔记'
+          : title.trim(),
+      content: content,
+      pinned: false,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  /// 更新笔记正文（自动保存用）。
+  Future<void> updateNoteContent(String noteId, String content) async {
+    final db = await _open();
+    await db.update('notes', {
+      'content': content,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, where: 'id = ?', whereArgs: [noteId]);
+  }
+
+  /// 更新笔记标题 / 置顶。
+  Future<void> updateNoteMeta(
+    String noteId, {
+    String? title,
+    bool? pinned,
+  }) async {
+    final db = await _open();
+    final fields = <String, dynamic>{
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+      if (title != null) 'title': title.trim(),
+      if (pinned != null) 'pinned': pinned ? 1 : 0,
+    };
+    await db.update('notes', fields, where: 'id = ?', whereArgs: [noteId]);
+  }
+
+  /// 追加内容到笔记正文末尾（一键生成用）。
+  Future<void> appendToNote(String noteId, String text) async {
+    final db = await _open();
+    final rows = await db.query('notes',
+        columns: ['content'], where: 'id = ?', whereArgs: [noteId]);
+    if (rows.isEmpty) return;
+    final old = rows.first['content'] as String? ?? '';
+    final content = old.trim().isEmpty
+        ? text
+        : '$old\n\n$text';
+    await updateNoteContent(noteId, content);
+  }
+
+  /// 列出某科目下全部笔记（置顶在前，再按更新时间倒序）。
+  Future<List<Note>> listNotes(String subjectId) async {
+    final db = await _open();
+    final rows = await db.query('notes',
+        where: 'subject_id = ?',
+        whereArgs: [subjectId],
+        orderBy: 'pinned DESC, updated_at DESC');
+    return rows.map(_noteFromRow).toList();
+  }
+
+  /// 按 id 取单篇笔记。
+  Future<Note?> getNote(String noteId) async {
+    final db = await _open();
+    final rows = await db.query('notes',
+        where: 'id = ?', whereArgs: [noteId], limit: 1);
+    if (rows.isEmpty) return null;
+    return _noteFromRow(rows.first);
+  }
+
+  /// 全文搜索笔记（标题 + 正文），FTS5 优先，失败降级 LIKE。
+  Future<List<Note>> searchNotes(String query) async {
+    final db = await _open();
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+    // 尝试 FTS5。
+    try {
+      final sanitized = _sanitizeFtsQuery(q);
+      if (sanitized.isNotEmpty) {
+        final rows = await db.rawQuery('''
+          SELECT n.* FROM notes n
+          JOIN notes_fts f ON f.rowid = n.rowid
+          WHERE notes_fts MATCH ?
+          ORDER BY n.pinned DESC, n.updated_at DESC
+        ''', [sanitized]);
+        if (rows.isNotEmpty) return rows.map(_noteFromRow).toList();
+      }
+    } catch (_) {
+      // FTS5 不可用或查询失败，走 LIKE。
+    }
+    final like = '%$q%';
+    final rows = await db.rawQuery('''
+      SELECT * FROM notes
+      WHERE title LIKE ? OR content LIKE ?
+      ORDER BY pinned DESC, updated_at DESC
+    ''', [like, like]);
+    return rows.map(_noteFromRow).toList();
+  }
+
+  String _sanitizeFtsQuery(String query) {
+    var q = query.trim();
+    if (q.length > 2048) q = q.substring(0, 2048);
+    return q.replaceAll(
+      RegExp("[^a-zA-Z0-9\\s\"'\\p{Script=Han}]", unicode: true),
+      ' ',
+    ).trim();
+  }
+
+  Note _noteFromRow(Map<String, dynamic> r) {
+    return Note(
+      id: r['id'] as String,
+      subjectId: r['subject_id'] as String,
+      title: r['title'] as String,
+      content: r['content'] as String? ?? '',
+      pinned: (r['pinned'] as int? ?? 0) == 1,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(r['created_at'] as int),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(r['updated_at'] as int),
+    );
+  }
+
+  /// 删除笔记（含其下音频记录）。
+  Future<void> deleteNote(String noteId) async {
+    final db = await _open();
+    await db.delete('note_audio',
+        where: 'note_id = ?', whereArgs: [noteId]);
+    await db.delete('notes', where: 'id = ?', whereArgs: [noteId]);
+  }
+
+  // ── 笔记音频 ──────────────────────────────────────────
+
+  /// 往笔记加一段音频。
+  Future<NoteAudio> addAudio({
+    required String noteId,
+    required String path,
+    int durationSec = 0,
+  }) async {
+    final db = await _open();
+    final now = DateTime.now();
+    final id = now.millisecondsSinceEpoch.toString();
+    await db.insert('note_audio', {
+      'id': id,
+      'note_id': noteId,
+      'path': path,
+      'duration_sec': durationSec,
+      'transcript': '',
+      'status': 'ready',
+      'created_at': now.millisecondsSinceEpoch,
+    });
+    return NoteAudio(
+      id: id,
+      noteId: noteId,
+      path: path,
+      durationSec: durationSec,
+      transcript: '',
+      status: AudioStatus.ready,
+      createdAt: now,
+    );
+  }
+
+  /// 列出某笔记下全部音频（按加入时间倒序）。
+  Future<List<NoteAudio>> listAudio(String noteId) async {
+    final db = await _open();
+    final rows = await db.query('note_audio',
+        where: 'note_id = ?', whereArgs: [noteId], orderBy: 'created_at DESC');
+    return rows
+        .map((r) => NoteAudio(
+              id: r['id'] as String,
+              noteId: r['note_id'] as String,
+              path: r['path'] as String,
+              durationSec: r['duration_sec'] as int? ?? 0,
+              transcript: r['transcript'] as String? ?? '',
+              status: AudioStatus.values.firstWhere(
+                (s) => s.name == r['status'],
+                orElse: () => AudioStatus.ready,
+              ),
+              createdAt:
+                  DateTime.fromMillisecondsSinceEpoch(r['created_at'] as int),
+            ))
+        .toList();
+  }
+
+  /// 更新音频转写结果与状态。
+  Future<void> updateAudio(
+    String audioId, {
+    String? transcript,
+    AudioStatus? status,
+  }) async {
+    final db = await _open();
+    final fields = <String, dynamic>{
+      if (transcript != null) 'transcript': transcript,
+      if (status != null) 'status': status.name,
+    };
+    if (fields.isEmpty) return;
+    await db.update('note_audio', fields,
+        where: 'id = ?', whereArgs: [audioId]);
+  }
+
+  /// 删除一段音频。
+  Future<void> deleteAudio(String audioId) async {
+    final db = await _open();
+    await db.delete('note_audio', where: 'id = ?', whereArgs: [audioId]);
   }
 }

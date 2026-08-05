@@ -1,12 +1,16 @@
-/// 课堂笔记主屏。
+/// 课堂笔记主屏（以笔记为中心）。
 ///
-/// 录音 → 转写（带说话人分离）→ DeepSeek 总结 → 本地笔记 + Markdown 导出。
-/// 提供四个 Tab：录音转写 / 笔记库 / 录音库 / 科目热词。
+/// 三栏布局：
+/// - 左栏：科目 → 笔记树 + 全文搜索
+/// - 主区：Markdown 笔记编辑器（源码 / 预览切换），自动保存
+/// - 右栏：当前笔记的音频面板 —— 导入音频 / 录音 → 转写（说话人分离）→
+///   一键生成笔记（DeepSeek），生成结果插入正文并回填科目热词
 library;
 
 import 'dart:async';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -19,6 +23,7 @@ import '../lecture/model_manager.dart';
 import '../lecture/models.dart';
 import '../lecture/recording_service.dart';
 import '../lecture/transcription_engine.dart';
+import 'note_editor.dart';
 
 class LectureScreen extends StatefulWidget {
   const LectureScreen({super.key});
@@ -28,112 +33,114 @@ class LectureScreen extends StatefulWidget {
 }
 
 class _LectureScreenState extends State<LectureScreen> {
-  final RecordingService _recorder = RecordingService();
   final LectureDb _db = LectureDb.instance;
+  final RecordingService _recorder = RecordingService();
 
-  int _tab = 0;
-  bool _isRecording = false;
-  Timer? _recordTimer;
-  int _recordSeconds = 0;
-
-  List<LectureSession> _sessions = [];
+  // 导航。
   List<LectureSubject> _subjects = [];
-  String? _selectedSubjectId;
-  String _extraHotwords = '';
+  final Map<String, List<Note>> _notesCache = {};
+  String? _expandedSubjectId;
+  Note? _currentNote;
+
+  // 编辑器 + 自动保存。
+  final TextEditingController _editorController = TextEditingController();
+  Timer? _saveTimer;
+  String _saveState = '';
+  bool _loadingNote = false;
+
+  // 音频面板。
+  List<NoteAudio> _audio = [];
+  String? _transcribingAudioId;
+  String _transcribePhase = '';
+  double _transcribeFraction = 0;
+  bool _generating = false;
+  bool _recording = false;
+
+  // 搜索。
+  String _searchQuery = '';
+  List<Note> _searchResults = [];
+
+  String? get _currentNoteId => _currentNote?.id;
 
   @override
   void initState() {
     super.initState();
-    _refreshAll();
+    _refreshSubjects();
   }
 
   @override
   void dispose() {
-    _recordTimer?.cancel();
+    _saveTimer?.cancel();
+    _editorController.dispose();
+    _recorder.cancel();
     super.dispose();
   }
 
-  Future<void> _refreshAll() async {
-    final sessions = await _db.listSessions();
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // ── 数据加载 ──────────────────────────────────────────
+
+  Future<void> _refreshSubjects() async {
     final subjects = await _db.listSubjects();
     if (!mounted) return;
+    setState(() => _subjects = subjects);
+    if (_expandedSubjectId == null && subjects.isNotEmpty) {
+      _expandedSubjectId = subjects.first.id;
+      await _loadNotesForExpanded();
+    }
+    if (_currentNote == null && _expandedSubjectId != null) {
+      final notes = _notesCache[_expandedSubjectId] ?? const [];
+      if (notes.isNotEmpty) await _selectNote(notes.first.id);
+    }
+  }
+
+  Future<void> _loadNotesForExpanded() async {
+    final sid = _expandedSubjectId;
+    if (sid == null) return;
+    final notes = await _db.listNotes(sid);
+    if (!mounted) return;
+    setState(() => _notesCache[sid] = notes);
+  }
+
+  Future<void> _selectNote(String noteId) async {
+    final note = await _db.getNote(noteId);
+    if (note == null) return;
     setState(() {
-      _sessions = sessions;
-      _subjects = subjects;
-      if (_selectedSubjectId == null && subjects.isNotEmpty) {
-        _selectedSubjectId = subjects.first.id;
-      }
+      _loadingNote = true;
+      _currentNote = note;
+      _searchQuery = '';
+      _searchResults = [];
+    });
+    _editorController.text = note.content;
+    final audio = await _db.listAudio(noteId);
+    if (!mounted) return;
+    setState(() {
+      _audio = audio;
+      _loadingNote = false;
+      _saveState = '已保存';
+      _transcribingAudioId = null;
+      _transcribePhase = '';
+      _transcribeFraction = 0;
     });
   }
 
-  // ── 录音 ──────────────────────────────────────────────
+  // ── 自动保存 ──────────────────────────────────────────
 
-  Future<void> _toggleRecord() async {
-    if (_isRecording) {
-      await _stopRecord();
-    } else {
-      await _startRecord();
-    }
+  void _onEditorChanged() {
+    if (_loadingNote || _currentNoteId == null) return;
+    if (mounted) setState(() => _saveState = '保存中…');
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 800), () async {
+      await _db.updateNoteContent(_currentNoteId!, _editorController.text);
+      if (!mounted) return;
+      setState(() => _saveState = '已保存');
+    });
   }
 
-  Future<void> _startRecord() async {
-    try {
-      final path = await _recorder.start();
-      if (path.isEmpty) return;
-      setState(() {
-        _isRecording = true;
-        _recordSeconds = 0;
-      });
-      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) setState(() => _recordSeconds++);
-      });
-    } catch (e) {
-      _snack('录音失败：$e');
-    }
-  }
-
-  Future<void> _stopRecord() async {
-    _recordTimer?.cancel();
-    final path = await _recorder.stop();
-    setState(() => _isRecording = false);
-    if (path == null || path.isEmpty || !await File(path).exists()) {
-      _snack('未获得录音文件');
-      return;
-    }
-    final session = LectureSession(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      title: _sessionTitle(),
-      audioPath: path,
-      createdAt: DateTime.now(),
-      status: LectureStatus.recorded,
-      subjectId: _selectedSubjectId,
-      durationSec: _recordSeconds,
-    );
-    await _db.saveSession(session: session);
-    _refreshAll();
-    _openDetail(session);
-  }
-
-  String _sessionTitle() {
-    final date = DateTime.now();
-    return '录音 ${date.month}月${date.day}日 ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
-  }
-
-  void _openDetail(LectureSession session, {String? extraHotwords}) {
-    Navigator.of(context)
-        .push(
-          MaterialPageRoute(
-            builder: (_) => SessionDetailScreen(
-              session: session,
-              subjects: _subjects,
-              extraHotwords: extraHotwords ?? _extraHotwords,
-            ),
-          ),
-        )
-        .then((_) => _refreshAll());
-  }
-
-  // ── 科目 / 热词 ───────────────────────────────────────
+  // ── 科目 / 笔记操作 ───────────────────────────────────
 
   Future<void> _addSubject() async {
     final ctrl = TextEditingController();
@@ -144,9 +151,7 @@ class _LectureScreenState extends State<LectureScreen> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
-          decoration: const InputDecoration(
-            labelText: '科目名（如：方剂学）',
-          ),
+          decoration: const InputDecoration(labelText: '科目名（如：方剂学）'),
         ),
         actions: [
           TextButton(
@@ -157,477 +162,37 @@ class _LectureScreenState extends State<LectureScreen> {
         ],
       ),
     );
-    if (name != null && name.trim().isNotEmpty) {
-      final subj = await _db.createSubject(name);
-      await _refreshAll();
-      setState(() => _selectedSubjectId = subj.id);
+    if (name == null || name.trim().isEmpty) return;
+    final subject = await _db.createSubject(name);
+    await _refreshSubjects();
+    if (mounted) {
+      setState(() {
+        _expandedSubjectId = subject.id;
+        _notesCache[subject.id] = [];
+      });
     }
   }
 
-  Future<void> _manageHotwords(LectureSubject subject) async {
-    final ctrl = TextEditingController();
-    final add = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('${subject.name} · 热词'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('已有 ${subject.hotwords.length} 个热词',
-                  style: Theme.of(ctx).textTheme.bodySmall),
-              const SizedBox(height: 8),
-              TextField(
-                controller: ctrl,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: '添加热词（逗号分隔多个）',
-                  isDense: true,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('关闭')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('添加')),
-        ],
-      ),
-    );
-    if (add == true && ctrl.text.trim().isNotEmpty) {
-      final words = ctrl.text
-          .split(RegExp(r'[,，]'))
-          .map((w) => w.trim())
-          .where((w) => w.isNotEmpty)
-          .toList();
-      await _db.addHotwords(subject.id, words);
-      _refreshAll();
-    }
-  }
-
-  // ── 设置 ──────────────────────────────────────────────
-
-  Future<void> _showDeepSeekConfig() async {
-    final cfg = await deepSeekConfig();
-    final keyCtrl = TextEditingController(text: cfg.key);
-    final modelCtrl = TextEditingController(text: cfg.model);
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('DeepSeek 配置'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: keyCtrl,
-              decoration: const InputDecoration(labelText: 'API Key'),
-              obscureText: true,
-            ),
-            TextField(
-              controller: modelCtrl,
-              decoration: const InputDecoration(
-                labelText: '模型（默认 deepseek-chat）',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('保存'),
-          ),
-        ],
-      ),
-    );
-    if (saved == true) {
-      await saveDeepSeekConfig(key: keyCtrl.text, model: modelCtrl.text);
-      _snack('DeepSeek 配置已保存');
-    }
-  }
-
-  void _snack(String msg) {
+  Future<void> _addNote(String subjectId) async {
+    final note = await _db.createNote(subjectId: subjectId);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    setState(() {
+      _expandedSubjectId = subjectId;
+      _notesCache[subjectId] = [
+        note,
+        ...?_notesCache[subjectId],
+      ];
+    });
+    await _selectNote(note.id);
+    _snack('已新建笔记');
   }
 
-  // ── 构建 ──────────────────────────────────────────────
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('课堂笔记'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'DeepSeek 配置',
-            onPressed: _showDeepSeekConfig,
-          ),
-        ],
-        bottom: TabBar(
-          onTap: (i) => setState(() => _tab = i),
-          tabs: const [
-            Tab(text: '录音转写'),
-            Tab(text: '笔记库'),
-            Tab(text: '录音库'),
-            Tab(text: '科目热词'),
-          ],
-        ),
-      ),
-      body: IndexedStack(
-        index: _tab,
-        children: [
-          _buildRecordTab(context),
-          _buildNotesTab(context),
-          _buildRecordingsTab(context),
-          _buildSubjectsTab(context),
-        ],
-      ),
-    );
-  }
-
-  // ── Tab 0：录音转写 ───────────────────────────────────
-
-  Widget _buildRecordTab(BuildContext context) {
-    final mm = (_recordSeconds ~/ 60).toString().padLeft(2, '0');
-    final ss = (_recordSeconds % 60).toString().padLeft(2, '0');
-    final currentSubject = _subjects
-        .where((s) => s.id == _selectedSubjectId)
-        .toList();
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                _isRecording ? '正在录音  $mm:$ss' : '开始一节新课堂',
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-            ),
-            IconButton.filled(
-              iconSize: 48,
-              onPressed: _toggleRecord,
-              icon: Icon(
-                _isRecording ? Icons.stop : Icons.fiber_manual_record,
-                color: _isRecording ? Colors.white : Colors.redAccent,
-              ),
-              style: IconButton.styleFrom(
-                backgroundColor: _isRecording ? Colors.redAccent : null,
-                padding: const EdgeInsets.all(12),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        if (_subjects.isEmpty)
-          FilledButton.tonalIcon(
-            onPressed: _addSubject,
-            icon: const Icon(Icons.create_new_folder_outlined),
-            label: const Text('先建一个科目（如：方剂学）'),
-          )
-        else
-          DropdownButtonFormField<String>(
-            initialValue: _selectedSubjectId,
-            decoration: const InputDecoration(
-              labelText: '科目（自动带上该科目的热词）',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              for (final s in _subjects)
-                DropdownMenuItem(
-                  value: s.id,
-                  child: Text('${s.name}（${s.hotwords.length} 热词）'),
-                ),
-            ],
-            onChanged: (v) => setState(() => _selectedSubjectId = v),
-          ),
-        if (currentSubject.isNotEmpty &&
-            currentSubject.first.hotwords.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
-            children: [
-              for (final w in currentSubject.first.hotwords.take(12))
-                Chip(label: Text(w), visualDensity: VisualDensity.compact),
-              if (currentSubject.first.hotwords.length > 12)
-                Chip(
-                  label: Text('+${currentSubject.first.hotwords.length - 12}'),
-                  visualDensity: VisualDensity.compact,
-                ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 8),
-        TextField(
-          decoration: const InputDecoration(
-            labelText: '本次额外热词（逗号分隔，临时补充）',
-            isDense: true,
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (v) => _extraHotwords = v,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          '提示：录音后自动转写 + 说话人分离，再用 DeepSeek 生成笔记；'
-          '笔记中的术语会回填到科目热词库，越用越准。',
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-      ],
-    );
-  }
-
-  // ── Tab 1：笔记库 ─────────────────────────────────────
-
-  Widget _buildNotesTab(BuildContext context) {
-    final withNotes =
-        _sessions.where((s) => s.status == LectureStatus.done).toList();
-    if (withNotes.isEmpty) {
-      return const Center(child: Text('还没有生成过笔记'));
-    }
-    return ListView.builder(
-      itemCount: withNotes.length,
-      itemBuilder: (context, i) {
-        final s = withNotes[i];
-        return ListTile(
-          leading: const Icon(Icons.article_outlined),
-          title: Text(s.title),
-          subtitle: Text('${_fmtTime(s.createdAt)}  ·  ${_subjectName(s.subjectId)}'),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: () => _openDetail(s),
-        );
-      },
-    );
-  }
-
-  // ── Tab 2：录音库 ─────────────────────────────────────
-
-  Widget _buildRecordingsTab(BuildContext context) {
-    if (_sessions.isEmpty) {
-      return const Center(child: Text('还没有录音'));
-    }
-    return ListView.builder(
-      itemCount: _sessions.length,
-      itemBuilder: (context, i) {
-        final s = _sessions[i];
-        final dur = s.durationSec > 0
-            ? '  ·  ${_fmtDuration(s.durationSec)}'
-            : '';
-        return ListTile(
-          leading: Icon(
-            s.status == LectureStatus.done
-                ? Icons.check_circle
-                : s.status == LectureStatus.transcribing
-                    ? Icons.autorenew
-                    : Icons.radio_button_checked,
-          ),
-          title: Text(s.title),
-          subtitle:
-              Text('${_fmtTime(s.createdAt)}${dur}  ·  ${_statusLabel(s.status)}'),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              PopupMenuButton<String>(
-                tooltip: '管理',
-                onSelected: (v) => _handleRecordingAction(s, v),
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                      value: 'rename', child: Text('重命名')),
-                  PopupMenuItem(
-                      value: 'subject', child: Text('更换科目')),
-                  PopupMenuItem(
-                      value: 'delete', child: Text('删除录音')),
-                ],
-              ),
-            ],
-          ),
-          onTap: () => _openDetail(s),
-        );
-      },
-    );
-  }
-
-  Future<void> _handleRecordingAction(
-      LectureSession session, String action) async {
-    switch (action) {
-      case 'rename':
-        final ctrl = TextEditingController(text: session.title);
-        final newTitle = await showDialog<String>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('重命名'),
-            content: TextField(
-              controller: ctrl,
-              autofocus: true,
-              decoration: const InputDecoration(labelText: '标题'),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('取消')),
-              FilledButton(
-                  onPressed: () => Navigator.pop(ctx, ctrl.text),
-                  child: const Text('保存')),
-            ],
-          ),
-        );
-        if (newTitle != null && newTitle.trim().isNotEmpty) {
-          await _db.renameSession(session.id, newTitle);
-          _refreshAll();
-        }
-      case 'subject':
-        final newSubject = await _showSubjectPicker(session.subjectId);
-        if (newSubject != null) {
-          await _db.setSessionSubject(session.id, newSubject);
-          _refreshAll();
-        }
-      case 'delete':
-        final confirm = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('删除录音？'),
-            content: const Text('删除后转写与笔记一并清除，不可恢复。'),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('取消')),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Colors.red,
-                ),
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('删除'),
-              ),
-            ],
-          ),
-        );
-        if (confirm == true) {
-          await _db.deleteSession(session.id);
-          try {
-            final f = File(session.audioPath);
-            if (await f.exists()) await f.delete();
-          } catch (_) {}
-          _refreshAll();
-        }
-    }
-  }
-
-  Future<String?> _showSubjectPicker(String? current) async {
-    final picked = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('选择科目'),
-        children: [
-          if (_subjects.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: Text('还没有科目，请先到「科目热词」页创建'),
-            )
-          else ...[
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, null),
-              child: const Text('不分类'),
-            ),
-            for (final s in _subjects)
-              SimpleDialogOption(
-                onPressed: () => Navigator.pop(ctx, s.id),
-                child: Text(s.name),
-              ),
-          ],
-        ],
-      ),
-    );
-    return picked;
-  }
-
-  // ── Tab 3：科目热词 ───────────────────────────────────
-
-  Widget _buildSubjectsTab(BuildContext context) {
-    if (_subjects.isEmpty) {
-      return Center(
-        child: FilledButton.icon(
-          onPressed: _addSubject,
-          icon: const Icon(Icons.create_new_folder_outlined),
-          label: const Text('新建科目'),
-        ),
-      );
-    }
-    return ListView.builder(
-      itemCount: _subjects.length,
-      itemBuilder: (context, i) {
-        final s = _subjects[i];
-        return ExpansionTile(
-          leading: const Icon(Icons.school),
-          title: Text(s.name),
-          subtitle: Text('${s.hotwords.length} 个热词'),
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                children: [
-                  for (final w in s.hotwords)
-                    InputChip(
-                      label: Text(w),
-                      onDeleted: () async {
-                        await _db.removeHotword(s.id, w);
-                        _refreshAll();
-                      },
-                    ),
-                  if (s.hotwords.isEmpty)
-                    Text('暂无热词 — 转写并生成笔记后会自动积累',
-                        style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: () => _manageHotwords(s),
-                    icon: const Icon(Icons.add),
-                    label: const Text('添加热词'),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => _renameSubject(s),
-                    icon: const Icon(Icons.edit_outlined),
-                    label: const Text('重命名'),
-                  ),
-                  TextButton.icon(
-                    onPressed: () => _deleteSubject(s),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('删除'),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _renameSubject(LectureSubject subject) async {
-    final ctrl = TextEditingController(text: subject.name);
-    final newName = await showDialog<String>(
+  Future<void> _renameNote(Note note) async {
+    final ctrl = TextEditingController(text: note.title);
+    final newTitle = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('重命名科目'),
+        title: const Text('重命名笔记'),
         content: TextField(controller: ctrl, autofocus: true),
         actions: [
           TextButton(
@@ -638,18 +203,30 @@ class _LectureScreenState extends State<LectureScreen> {
         ],
       ),
     );
-    if (newName != null && newName.trim().isNotEmpty) {
-      await _db.renameSubject(subject.id, newName);
-      _refreshAll();
+    if (newTitle == null || newTitle.trim().isEmpty) return;
+    await _db.updateNoteMeta(note.id, title: newTitle);
+    await _loadNotesForExpanded();
+    if (_currentNoteId == note.id) {
+      setState(() =>
+          _currentNote = _currentNote!.copyWith(title: newTitle.trim()));
     }
   }
 
-  Future<void> _deleteSubject(LectureSubject subject) async {
+  Future<void> _togglePin(Note note) async {
+    await _db.updateNoteMeta(note.id, pinned: !note.pinned);
+    await _loadNotesForExpanded();
+    if (_currentNoteId == note.id) {
+      setState(() =>
+          _currentNote = _currentNote!.copyWith(pinned: !note.pinned));
+    }
+  }
+
+  Future<void> _deleteNote(Note note) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('删除科目「${subject.name}」？'),
-        content: const Text('该科目的热词库将被清除，已有录音/笔记保留但不再分类。'),
+        title: Text('删除笔记「${note.title}」？'),
+        content: const Text('该笔记及其音频转写记录将被删除，不可恢复。'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -662,132 +239,127 @@ class _LectureScreenState extends State<LectureScreen> {
         ],
       ),
     );
-    if (confirm == true) {
-      await _db.deleteSubject(subject.id);
-      _refreshAll();
+    if (confirm != true) return;
+    await _db.deleteNote(note.id);
+    if (_currentNoteId == note.id) {
+      _currentNote = null;
+      _editorController.clear();
+      _audio = [];
     }
+    await _loadNotesForExpanded();
+    if (mounted) setState(() {});
   }
 
-  // ── 工具 ──────────────────────────────────────────────
-
-  String _subjectName(String? id) {
-    if (id == null) return '未分类';
-    final found = _subjects.where((s) => s.id == id).toList();
-    return found.isEmpty ? '未分类' : found.first.name;
-  }
-
-  String _statusLabel(LectureStatus s) {
-    switch (s) {
-      case LectureStatus.recorded:
-        return '待转写';
-      case LectureStatus.transcribing:
-        return '转写中';
-      case LectureStatus.transcribingModels:
-        return '下载模型中';
-      case LectureStatus.done:
-        return '已完成';
-      case LectureStatus.failed:
-        return '失败';
+  Future<void> _deleteSubject(LectureSubject subject) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('删除科目「${subject.name}」？'),
+        content: const Text('该科目下的笔记与热词将一并删除，不可恢复。'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+    final notes = await _db.listNotes(subject.id);
+    for (final n in notes) {
+      await _db.deleteNote(n.id);
     }
+    await _db.deleteSubject(subject.id);
+    if (_currentNoteId != null &&
+        _currentNote!.subjectId == subject.id) {
+      _currentNote = null;
+      _editorController.clear();
+      _audio = [];
+    }
+    if (mounted) {
+      setState(() {
+        _expandedSubjectId = null;
+        _notesCache.remove(subject.id);
+      });
+    }
+    await _refreshSubjects();
   }
 
-  String _fmtTime(DateTime t) {
-    return '${t.month}/${t.day} ${t.hour}:${t.minute.toString().padLeft(2, '0')}';
-  }
+  // ── 搜索 ──────────────────────────────────────────────
 
-  String _fmtDuration(int sec) {
-    final m = sec ~/ 60;
-    final s = sec % 60;
-    return '${m}m${s.toString().padLeft(2, '0')}s';
-  }
-}
-
-/// 会话详情：转写 → 结果 → 笔记 → 导出。
-class SessionDetailScreen extends StatefulWidget {
-  const SessionDetailScreen({
-    super.key,
-    required this.session,
-    required this.subjects,
-    this.extraHotwords = '',
-  });
-
-  final LectureSession session;
-  final List<LectureSubject> subjects;
-
-  /// 录音时用户输入的本次额外热词。
-  final String extraHotwords;
-
-  @override
-  State<SessionDetailScreen> createState() => _SessionDetailScreenState();
-}
-
-class _SessionDetailScreenState extends State<SessionDetailScreen> {
-  final LectureDb _db = LectureDb.instance;
-
-  List<TranscriptSegment> _segments = [];
-  LectureNote? _note;
-  String _phase = '';
-  double _fraction = 0;
-  bool _busy = false;
-  bool _noteBusy = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final segs = await _db.segmentsFor(widget.session.id);
-    final note = await _db.noteFor(widget.session.id);
+  Future<void> _runSearch(String q) async {
+    if (q.trim().isEmpty) {
+      setState(() {
+        _searchQuery = '';
+        _searchResults = [];
+      });
+      return;
+    }
+    final results = await _db.searchNotes(q);
     if (!mounted) return;
     setState(() {
-      _segments = segs;
-      _note = note;
+      _searchQuery = q;
+      _searchResults = results;
     });
-    if (widget.session.status == LectureStatus.recorded) {
-      _transcribe();
-    }
   }
 
-  /// 转写热词：科目热词库 + 会话额外热词合并。
-  List<String> get _mergedHotwords {
-    final subject = widget.subjects
-        .where((s) => s.id == widget.session.subjectId)
-        .toList();
-    final base = subject.isEmpty ? <String>[] : subject.first.hotwords;
-    final extra = widget.extraHotwords
-        .split(RegExp(r'[,，]'))
-        .map((w) => w.trim())
-        .where((w) => w.isNotEmpty)
-        .toList();
-    final seen = <String>{...base, ...extra};
-    return seen.toList();
+  // ── 音频面板 ──────────────────────────────────────────
+
+  Future<void> _importAudio() async {
+    if (_currentNoteId == null) return;
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['m4a', 'mp3', 'wav', 'flac', 'aac', 'ogg', 'amr'],
+      dialogTitle: '选择课堂录音',
+    );
+    if (result == null || result.files.isEmpty) return;
+    final srcPath = result.files.single.path;
+    if (srcPath == null) return;
+
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = p.join(docs.path, 'audio');
+    await Directory(dir).create(recursive: true);
+    final dst = p.join(
+      dir,
+      '${DateTime.now().millisecondsSinceEpoch}${p.extension(srcPath)}',
+    );
+    await File(srcPath).copy(dst);
+
+    final audio = await _db.addAudio(noteId: _currentNoteId!, path: dst);
+    if (!mounted) return;
+    setState(() => _audio = [audio, ..._audio]);
+    _snack('已导入音频，点「转写」开始识别');
   }
 
-  Future<void> _transcribe() async {
+  Future<void> _transcribeAudio(NoteAudio audio) async {
     setState(() {
-      _busy = true;
-      _phase = '检查模型';
+      _transcribingAudioId = audio.id;
+      _transcribePhase = '检查模型';
+      _transcribeFraction = 0;
     });
-    await _db.updateSessionStatus(
-        widget.session.id, LectureStatus.transcribing);
+    await _db.updateAudio(audio.id, status: AudioStatus.transcribing);
 
     try {
       if (!await ModelManager.allReady()) {
-        await _db.updateSessionStatus(
-            widget.session.id, LectureStatus.transcribingModels);
         await ModelManager.ensureDownloaded(
           onProgress: (b, t, model, index, count) {
             if (mounted) {
               setState(() {
-                _phase = '下载模型 $model（$index/$count）';
-                _fraction = (b > 0 && t > 0) ? b / t : 0;
+                _transcribePhase = '下载模型 $model（$index/$count）';
+                _transcribeFraction = (b > 0 && t > 0) ? b / t : 0;
               });
             }
           },
         );
       }
+
+      final note = await _db.getNote(_currentNoteId!);
+      if (note == null) throw StateError('笔记不存在');
+      final hotwords = _hotwordsFor(note.subjectId);
 
       final models = EngineModels(
         asr: (await ModelManager.localPathFor('asr'))!,
@@ -798,408 +370,559 @@ class _SessionDetailScreenState extends State<SessionDetailScreen> {
       );
 
       final segs = await transcribeAudio(
-        wavPath: widget.session.audioPath,
+        wavPath: audio.path,
         models: models,
-        hotwords: _mergedHotwords,
+        hotwords: hotwords,
         onProgress: (phase, fraction) {
           if (mounted) {
             setState(() {
-              _phase = phase;
-              _fraction = fraction;
+              _transcribePhase = phase;
+              _transcribeFraction = fraction;
             });
           }
         },
       );
 
-      await _db.saveSession(
-        session: widget.session.copyWith(status: LectureStatus.done),
-        segments: segs,
-      );
-      if (!mounted) return;
-      setState(() {
-        _segments = segs;
-        _busy = false;
-        _fraction = 1;
-        _phase = '完成';
-      });
-    } catch (e) {
-      await _db.updateSessionStatus(widget.session.id, LectureStatus.failed);
-      if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _phase = '失败';
-      });
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('转写失败：$e')));
-    }
-  }
-
-  Future<void> _generateNote() async {
-    if (_segments.isEmpty) return;
-    setState(() => _noteBusy = true);
-    try {
-      final fullText = _segments
+      final transcript = segs
           .map((s) =>
               (s.speaker >= 0 ? '[说话人${s.speaker + 1}] ' : '') + s.text)
           .join('\n');
-      final note = await generateNotes(
-        transcriptText: fullText,
-        hotwords: _mergedHotwords,
-        title: widget.session.title,
-      );
-      await _db.saveSession(
-        session: widget.session,
-        note: note,
-      );
 
-      // 热词自进化：笔记术语回填科目热词库。
-      final subjectId = widget.session.subjectId;
-      if (subjectId != null) {
-        final added =
-            await harvestTermsFromNote(subjectId: subjectId, note: note);
-        if (added > 0) {
-          _snack('已自动补充 $added 个热词到该科目');
-        }
-      }
-
+      await _db.updateAudio(
+        audio.id,
+        transcript: transcript,
+        status: AudioStatus.done,
+      );
       if (!mounted) return;
       setState(() {
-        _note = note;
-        _noteBusy = false;
+        _audio = [
+          for (final a in _audio)
+            if (a.id == audio.id)
+              a.copyWith(transcript: transcript, status: AudioStatus.done)
+            else
+              a
+        ];
+        _transcribingAudioId = null;
+        _transcribeFraction = 1;
       });
     } catch (e) {
+      await _db.updateAudio(audio.id, status: AudioStatus.failed);
       if (!mounted) return;
-      setState(() => _noteBusy = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('笔记生成失败：$e')));
+      setState(() {
+        _transcribingAudioId = null;
+        _transcribePhase = '';
+      });
+      _snack('转写失败：$e');
     }
   }
 
-  Future<void> _exportMarkdown() async {
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = p.join(docs.path, 'notes');
-    await Directory(dir).create(recursive: true);
-    final path =
-        p.join(dir, '${widget.session.title.replaceAll(' ', '_')}.md');
+  /// 一键生成：DeepSeek 把转写整理成 Markdown，插入笔记正文，术语回填热词。
+  Future<void> _generateNoteFromAudio(NoteAudio audio) async {
+    if (audio.transcript.trim().isEmpty) {
+      _snack('请先转写这段音频');
+      return;
+    }
+    setState(() => _generating = true);
+    try {
+      final note = await _db.getNote(_currentNoteId!);
+      if (note == null) throw StateError('笔记不存在');
+      final hotwords = _hotwordsFor(note.subjectId);
+      final subject = _subjectOf(note.subjectId);
 
-    final sb = StringBuffer();
-    sb.writeln('# ${widget.session.title}\n');
-    for (final s in _segments) {
-      final tag = s.speaker >= 0 ? '说话人${s.speaker + 1}' : '??';
-      final start = _fmtMs(s.startMs);
-      final end = _fmtMs(s.endMs);
-      sb.writeln('**[$start - $end] $tag**  ');
-      sb.writeln('${s.text}\n');
+      final gen = await generateNoteMarkdown(
+        transcriptText: audio.transcript,
+        hotwords: hotwords,
+        title: note.title,
+      );
+
+      await _db.appendToNote(note.id, gen.markdown);
+      var added = 0;
+      if (subject != null) {
+        added = await harvestTermsFromNote(
+            subjectId: subject.id, note: _noteFromGen(gen));
+      }
+      if (!mounted) return;
+      setState(() {
+        if (gen.markdown.trim().isNotEmpty) {
+          final base = _editorController.text;
+          _editorController.text =
+              base.trim().isEmpty ? gen.markdown : '$base\n\n${gen.markdown}';
+        }
+        _generating = false;
+        _saveState = '已保存';
+      });
+      _snack(added > 0
+          ? '笔记已生成，并回填 $added 个热词到「${subject?.name ?? ''}」'
+          : '笔记已生成');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _generating = false);
+      _snack('生成失败：$e');
     }
-    if (_note != null) {
-      sb.writeln('---\n');
-      sb.writeln(_note!.toMarkdown());
-    }
-    await File(path).writeAsString(sb.toString());
-    if (!mounted) return;
-    Clipboard.setData(ClipboardData(text: sb.toString()));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已导出到 $path（内容已复制到剪贴板）')),
+  }
+
+  LectureNote _noteFromGen(NoteGeneration gen) {
+    return LectureNote(
+      summary: '',
+      keyPoints: [],
+      terms: gen.terms,
+      examHints: [],
+      questions: [],
     );
   }
 
-  String _fmtMs(double ms) {
-    final total = ms ~/ 1000;
-    final m = (total ~/ 60).toString().padLeft(2, '0');
-    final s = (total % 60).toString().padLeft(2, '0');
-    return '$m:$s';
+  List<String> _hotwordsFor(String subjectId) {
+    final s = _subjectOf(subjectId);
+    return s == null ? const [] : s.hotwords;
   }
 
-  void _snack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  LectureSubject? _subjectOf(String? subjectId) {
+    if (subjectId == null) return null;
+    for (final s in _subjects) {
+      if (s.id == subjectId) return s;
+    }
+    return null;
   }
+
+  Future<void> _deleteAudio(NoteAudio audio) async {
+    await _db.deleteAudio(audio.id);
+    if (mounted) {
+      setState(() => _audio = _audio.where((a) => a.id != audio.id).toList());
+    }
+  }
+
+  // 录音：start/stop 切换，停止后导入当前笔记。
+  Future<void> _toggleRecord() async {
+    if (_recording) {
+      final path = await _recorder.stop();
+      setState(() => _recording = false);
+      if (path == null || path.isEmpty || !await File(path).exists()) {
+        _snack('未获得录音文件');
+        return;
+      }
+      final audio = await _db.addAudio(noteId: _currentNoteId!, path: path);
+      if (!mounted) return;
+      setState(() => _audio = [audio, ..._audio]);
+      _snack('录音已保存，点「转写」开始识别');
+    } else {
+      if (_currentNoteId == null) return;
+      try {
+        final path = await _recorder.start();
+        if (path.isEmpty) return;
+        setState(() => _recording = true);
+        _snack('录音中…');
+      } catch (e) {
+        _snack('录音失败：$e');
+      }
+    }
+  }
+
+  // ── 导出 ──────────────────────────────────────────────
+
+  Future<void> _exportNote(Note note) async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = p.join(docs.path, 'notes');
+    await Directory(dir).create(recursive: true);
+    final path = p.join(dir, '${note.title.replaceAll(' ', '_')}.md');
+    final content = '# ${note.title}\n\n${_editorController.text}';
+    await File(path).writeAsString(content);
+    Clipboard.setData(ClipboardData(text: content));
+    _snack('已导出到 $path');
+  }
+
+  // ── 构建 ──────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.session.title),
-        actions: [
-          if (_note != null)
-            IconButton(
-              icon: const Icon(Icons.edit_outlined),
-              tooltip: '编辑笔记',
-              onPressed: _editNote,
-            ),
-          IconButton(
-            icon: const Icon(Icons.ios_share),
-            tooltip: '导出 Markdown',
-            onPressed: _segments.isEmpty ? null : _exportMarkdown,
-          ),
-        ],
-      ),
-      body: _busy
-          ? _buildProgress()
-          : _segments.isEmpty
-              ? const Center(child: Text('暂无转写结果'))
-              : _buildResult(),
-    );
-  }
-
-  Future<void> _editNote() async {
-    final note = _note;
-    if (note == null) return;
-    final result = await Navigator.of(context).push<LectureNote>(
-      MaterialPageRoute(
-        builder: (_) => NoteEditorScreen(note: note),
-      ),
-    );
-    if (result != null) {
-      await _db.updateNote(widget.session.id, result);
-      setState(() => _note = result);
-      _snack('笔记已保存');
-    }
-  }
-
-  Widget _buildProgress() {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      appBar: AppBar(title: const Text('课堂笔记')),
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (_fraction < 0.05)
-            const CircularProgressIndicator()
-          else
-            LinearProgressIndicator(value: _fraction),
-          const SizedBox(height: 16),
-          Text(_phase, style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Text('${(_fraction * 100).toStringAsFixed(0)}%'),
+          SizedBox(width: 260, child: _buildNavPane(context)),
+          const VerticalDivider(width: 1),
+          Expanded(child: _buildEditorPane(context)),
+          const VerticalDivider(width: 1),
+          SizedBox(width: 320, child: _buildAudioPane(context)),
         ],
       ),
     );
   }
 
-  Widget _buildResult() {
-    final speakers = _segments
-        .where((s) => s.speaker >= 0)
-        .map((s) => s.speaker)
-        .toSet()
-        .toList()
-      ..sort();
-    final colors = [
-      Colors.blue,
-      Colors.deepOrange,
-      Colors.teal,
-      Colors.purple,
-    ];
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
+  // 左栏：科目 → 笔记树 + 搜索。
+  Widget _buildNavPane(BuildContext context) {
+    return Column(
       children: [
-        if (_segments.any((s) => s.speaker >= 0))
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final spk in speakers)
-                Chip(
-                  avatar: CircleAvatar(
-                    backgroundColor: colors[spk % colors.length],
-                    child: Text('${spk + 1}'),
-                  ),
-                  label: Text('说话人${spk + 1}'),
-                ),
-            ],
-          ),
-        const SizedBox(height: 8),
-        for (final s in _segments)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (s.speaker >= 0)
-                  Container(
-                    margin: const EdgeInsets.only(right: 8, top: 4),
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: colors[s.speaker % colors.length],
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                Expanded(
-                  child: Text(
-                    s.text,
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                ),
-              ],
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: TextField(
+            onChanged: _runSearch,
+            decoration: InputDecoration(
+              hintText: '搜索笔记…',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
             ),
           ),
-        const Divider(height: 32),
-        _buildNoteSection(),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child:
+              _searchQuery.isNotEmpty ? _buildSearchList() : _buildSubjectTree(),
+        ),
       ],
     );
   }
 
-  Widget _buildNoteSection() {
-    if (_noteBusy) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: CircularProgressIndicator(),
+  Widget _buildSearchList() {
+    if (_searchResults.isEmpty) {
+      return const Center(child: Text('无匹配结果'));
+    }
+    return ListView.builder(
+      itemCount: _searchResults.length,
+      itemBuilder: (context, i) {
+        final n = _searchResults[i];
+        final subj = _subjectOf(n.subjectId);
+        return ListTile(
+          dense: true,
+          title: Text(n.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: Text(
+            subj?.name ?? '',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          selected: n.id == _currentNoteId,
+          onTap: () => _selectNote(n.id),
+        );
+      },
+    );
+  }
+
+  Widget _buildSubjectTree() {
+    if (_subjects.isEmpty) {
+      return Center(
+        child: FilledButton.icon(
+          onPressed: _addSubject,
+          icon: const Icon(Icons.create_new_folder_outlined),
+          label: const Text('新建科目'),
         ),
       );
     }
-    if (_note != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('课堂笔记', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          if (_note!.summary.isNotEmpty)
-            Text(_note!.summary, style: Theme.of(context).textTheme.bodyLarge),
-          _noteList('要点', _note!.keyPoints),
-          _noteList('术语', _note!.terms),
-          _noteList('考点', _note!.examHints),
-          _noteList('疑问', _note!.questions),
+    return ListView(
+      children: [
+        for (final subject in _subjects) _buildSubjectTile(subject),
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: OutlinedButton.icon(
+            onPressed: _addSubject,
+            icon: const Icon(Icons.add),
+            label: const Text('科目'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSubjectTile(LectureSubject subject) {
+    final expanded = _expandedSubjectId == subject.id;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.folder, size: 20),
+          title: Text(
+            subject.name,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          trailing: Text(
+            '${subject.hotwords.length}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          onTap: () async {
+            setState(() {
+              _expandedSubjectId = expanded ? null : subject.id;
+            });
+            if (!expanded) await _loadNotesForExpanded();
+          },
+          onLongPress: () => _deleteSubject(subject),
+        ),
+        if (expanded) ...[
+          for (final note in (_notesCache[subject.id] ?? const []))
+            _buildNoteTile(note),
+          Padding(
+            padding: const EdgeInsets.only(left: 24, bottom: 4),
+            child: TextButton.icon(
+              onPressed: () => _addNote(subject.id),
+              icon: const Icon(Icons.note_add_outlined, size: 18),
+              label: const Text('新建笔记'),
+            ),
+          ),
         ],
-      );
+      ],
+    );
+  }
+
+  Widget _buildNoteTile(Note note) {
+    return ListTile(
+      dense: true,
+      leading: Icon(
+        note.pinned ? Icons.push_pin : Icons.description_outlined,
+        size: 18,
+      ),
+      title: Text(
+        note.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: note.id == _currentNoteId
+              ? Theme.of(context).colorScheme.primary
+              : null,
+        ),
+      ),
+      selected: note.id == _currentNoteId,
+      onTap: () => _selectNote(note.id),
+      onLongPress: () => _showNoteMenu(note),
+    );
+  }
+
+  void _showNoteMenu(Note note) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('重命名'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _renameNote(note);
+              },
+            ),
+            ListTile(
+              leading: Icon(
+                  note.pinned ? Icons.push_pin_outlined : Icons.push_pin),
+              title: Text(note.pinned ? '取消置顶' : '置顶'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _togglePin(note);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.ios_share),
+              title: const Text('导出 Markdown'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _exportNote(note);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('删除', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteNote(note);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 主区：编辑器。
+  Widget _buildEditorPane(BuildContext context) {
+    final note = _currentNote;
+    return Column(
+      children: [
+        if (note != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    note.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Text(_saveState,
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.ios_share, size: 20),
+                  tooltip: '导出 Markdown',
+                  onPressed: () => _exportNote(note),
+                ),
+              ],
+            ),
+          ),
+        const Divider(height: 1),
+        Expanded(
+          child: note == null
+              ? const Center(child: Text('选择或新建一篇笔记开始'))
+              : NoteEditor(
+                  controller: _editorController,
+                  onChanged: (_) => _onEditorChanged(),
+                ),
+        ),
+      ],
+    );
+  }
+
+  // 右栏：音频面板。
+  Widget _buildAudioPane(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Text('音频', style: Theme.of(context).textTheme.titleMedium),
+              const Spacer(),
+              IconButton(
+                icon: const Icon(Icons.library_music_outlined),
+                tooltip: '导入音频',
+                onPressed: _currentNoteId == null ? null : _importAudio,
+              ),
+              IconButton(
+                icon: _recording
+                    ? const Icon(Icons.stop, color: Colors.red)
+                    : const Icon(Icons.fiber_manual_record,
+                        color: Colors.red),
+                tooltip: _recording ? '停止录音' : '录音',
+                onPressed: _currentNoteId == null ? null : _toggleRecord,
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: _currentNoteId == null
+              ? const Center(child: Text('选中一篇笔记后导入音频'))
+              : _audio.isEmpty
+                  ? const Center(
+                      child: Text('还没有音频\n点右上角导入录音文件或直接录音'),
+                    )
+                  : ListView.builder(
+                      itemCount: _audio.length,
+                      itemBuilder: (context, i) => _buildAudioTile(_audio[i]),
+                    ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAudioTile(NoteAudio audio) {
+    final isTranscribing = _transcribingAudioId == audio.id;
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(_audioIcon(audio.status), size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    p.basename(audio.path),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+                PopupMenuButton<String>(
+                  onSelected: (v) {
+                    if (v == 'delete') _deleteAudio(audio);
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'delete', child: Text('删除')),
+                  ],
+                ),
+              ],
+            ),
+            if (audio.durationSec > 0)
+              Text(
+                '时长 ${audio.durationSec ~/ 60}分${audio.durationSec % 60}秒',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            const SizedBox(height: 8),
+            if (isTranscribing) ...[
+              LinearProgressIndicator(value: _transcribeFraction),
+              const SizedBox(height: 4),
+              Text(_transcribePhase,
+                  style: Theme.of(context).textTheme.bodySmall),
+            ] else if (audio.status == AudioStatus.done &&
+                audio.transcript.isNotEmpty)
+              Text(
+                '已转写 ${audio.transcript.length} 字',
+                style: Theme.of(context).textTheme.bodySmall,
+              )
+            else
+              Text(_audioStatusLabel(audio.status),
+                  style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed:
+                      isTranscribing ? null : () => _transcribeAudio(audio),
+                  icon: const Icon(Icons.transcribe, size: 18),
+                  label: const Text('转写'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed:
+                      isTranscribing || _generating
+                          ? null
+                          : () => _generateNoteFromAudio(audio),
+                  icon: _generating
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.auto_awesome, size: 18),
+                  label: const Text('一键生成笔记'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  IconData _audioIcon(AudioStatus s) {
+    switch (s) {
+      case AudioStatus.ready:
+        return Icons.radio_button_checked;
+      case AudioStatus.transcribing:
+        return Icons.autorenew;
+      case AudioStatus.done:
+        return Icons.check_circle;
+      case AudioStatus.failed:
+        return Icons.error_outline;
     }
-    return FilledButton.icon(
-      onPressed: _generateNote,
-      icon: const Icon(Icons.auto_awesome),
-      label: const Text('用 DeepSeek 生成课堂笔记'),
-    );
   }
 
-  Widget _noteList(String title, List<String> items) {
-    if (items.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
-          for (final item in items)
-            Padding(
-              padding: const EdgeInsets.only(left: 8, top: 4),
-              child: Text('• $item'),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 笔记编辑器：可改摘要/要点/术语/考点/疑问，保存返回 LectureNote。
-class NoteEditorScreen extends StatefulWidget {
-  const NoteEditorScreen({super.key, required this.note});
-
-  final LectureNote note;
-
-  @override
-  State<NoteEditorScreen> createState() => _NoteEditorScreenState();
-}
-
-class _NoteEditorScreenState extends State<NoteEditorScreen> {
-  late TextEditingController _summary;
-  late TextEditingController _keyPoints;
-  late TextEditingController _terms;
-  late TextEditingController _examHints;
-  late TextEditingController _questions;
-
-  @override
-  void initState() {
-    super.initState();
-    _summary = TextEditingController(text: widget.note.summary);
-    _keyPoints = TextEditingController(text: widget.note.keyPoints.join('\n'));
-    _terms = TextEditingController(text: widget.note.terms.join('\n'));
-    _examHints = TextEditingController(text: widget.note.examHints.join('\n'));
-    _questions =
-        TextEditingController(text: widget.note.questions.join('\n'));
-  }
-
-  @override
-  void dispose() {
-    _summary.dispose();
-    _keyPoints.dispose();
-    _terms.dispose();
-    _examHints.dispose();
-    _questions.dispose();
-    super.dispose();
-  }
-
-  List<String> _lines(String s) =>
-      s.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
-
-  void _save() {
-    Navigator.of(context).pop(
-      LectureNote(
-        summary: _summary.text.trim(),
-        keyPoints: _lines(_keyPoints.text),
-        terms: _lines(_terms.text),
-        examHints: _lines(_examHints.text),
-        questions: _lines(_questions.text),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('编辑笔记'),
-        actions: [
-          FilledButton(onPressed: _save, child: const Text('保存')),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          TextField(
-            controller: _summary,
-            decoration: const InputDecoration(
-              labelText: '概述',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 3,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _keyPoints,
-            decoration: const InputDecoration(
-              labelText: '要点（每行一个）',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 6,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _terms,
-            decoration: const InputDecoration(
-              labelText: '术语（每行一个）',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 5,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _examHints,
-            decoration: const InputDecoration(
-              labelText: '考点（每行一个）',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 5,
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _questions,
-            decoration: const InputDecoration(
-              labelText: '疑问（每行一个）',
-              border: OutlineInputBorder(),
-            ),
-            maxLines: 4,
-          ),
-        ],
-      ),
-    );
+  String _audioStatusLabel(AudioStatus s) {
+    switch (s) {
+      case AudioStatus.ready:
+        return '待转写';
+      case AudioStatus.transcribing:
+        return '转写中…';
+      case AudioStatus.done:
+        return '已转写';
+      case AudioStatus.failed:
+        return '转写失败';
+    }
   }
 }

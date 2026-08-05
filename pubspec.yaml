@@ -50,10 +50,11 @@ dependencies:
   git2dart_binaries: ^1.12.1
   pointycastle: ^4.0.0
 
-  # 课堂笔记模块：离线转写 / 录音 / Windows SQLite。
+  # 课堂笔记模块：离线转写 / 录音 / Windows SQLite / 导入音频。
   sherpa_onnx: ^1.13.4
   record: ^6.0.0
   sqflite_common_ffi: ^2.4.2
+  file_picker: ^8.1.2
 
 dev_dependencies:
   flutter_test:
