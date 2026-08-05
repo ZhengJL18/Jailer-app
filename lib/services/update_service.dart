@@ -39,6 +39,20 @@ class UpdateService {
   /// 网络/解析失败返回 null（启动静默，不打扰用户）。
   static Future<UpdateInfo?> checkForUpdate() async {
     try {
+      return await _fetchLatest();
+    } catch (e) {
+      debugPrint('[Update] 检查失败: $e');
+      return null;
+    }
+  }
+
+  /// 手动检查：有新版返回 UpdateInfo，无新版返回 null，检查失败抛异常。
+  /// 调用者据此区分三种状态（区别于启动静默的 [checkForUpdate]）。
+  static Future<UpdateInfo?> checkForUpdateDetailed() async {
+    return _fetchLatest();
+  }
+
+  static Future<UpdateInfo?> _fetchLatest() async {
       final resp = await http
           .get(
             Uri.parse('https://api.github.com/repos/$_repo/releases/latest'),
@@ -92,10 +106,6 @@ class UpdateService {
         downloadUrl: downloadUrl,
         notes: data['body'] as String?,
       );
-    } catch (e) {
-      debugPrint('[Update] 检查失败: $e');
-      return null; // 网络失败静默
-    }
   }
 
   /// 下载并安装新版 APK（app_installer_plus 自带 FileProvider + 授权引导）。

@@ -157,6 +157,34 @@ class _ChatScreenState extends State<ChatScreen> {
     _showUpdateDialog(info);
   }
 
+  /// 手动检查更新（二级菜单入口）：有新版弹窗，无新版/失败给提示。
+  Future<void> _checkForUpdateManually() async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('正在检查更新…')),
+    );
+    UpdateInfo? info;
+    var failed = false;
+    try {
+      info = await UpdateService.checkForUpdateDetailed();
+    } catch (_) {
+      failed = true; // 网络/解析失败。
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (failed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('检查更新失败，请检查网络')),
+      );
+    } else if (info != null) {
+      _showUpdateDialog(info);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已是最新版本')),
+      );
+    }
+  }
+
   void _showUpdateDialog(UpdateInfo info) {
     showDialog<void>(
       context: context,
@@ -939,6 +967,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => SettingsScreen()),
                   );
+                case 'check_update':
+                  _checkForUpdateManually();
               }
             },
             itemBuilder: (_) => [
@@ -983,6 +1013,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     Icon(Icons.settings, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('设置'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'check_update',
+                child: Row(
+                  children: [
+                    Icon(Icons.system_update_alt, size: 18, color: context.appPalette.textSecondary),
+                    SizedBox(width: 8),
+                    Text('检查更新'),
                   ],
                 ),
               ),
