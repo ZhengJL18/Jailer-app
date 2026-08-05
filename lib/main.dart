@@ -14,6 +14,8 @@ import 'agent/workflow.dart';
 import 'config/jailer_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
+import 'screens/code_editor_screen.dart';
+import 'screens/file_browser_screen.dart';
 import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/storage_permission.dart';
@@ -969,6 +971,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 case 'check_update':
                   _checkForUpdateManually();
+                case 'files':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
+                  );
               }
             },
             itemBuilder: (_) => [
@@ -1023,6 +1029,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     Icon(Icons.system_update_alt, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('检查更新'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'files',
+                child: Row(
+                  children: [
+                    Icon(Icons.code, size: 18, color: context.appPalette.textSecondary),
+                    SizedBox(width: 8),
+                    Text('代码'),
                   ],
                 ),
               ),
