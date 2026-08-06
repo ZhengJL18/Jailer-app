@@ -166,6 +166,19 @@ class _ChatMessage {
         discussionPerspective = null,
         discussionPerspectives = const [],
         discussionSummary = null;
+  _ChatMessage.reasoning(this.text)
+      : role = 'reasoning',
+        toolName = null,
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false;
 }
 
 class ChatScreen extends StatefulWidget {
@@ -177,6 +190,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
+  final _scrollController = ScrollController();
   final List<_ChatMessage> _messages = [];
   // 工具名 → 当前 running 卡片的消息索引（done 时更新而非新增）。
   final Map<String, int> _toolRunningIdx = {};
@@ -189,6 +203,7 @@ class _ChatScreenState extends State<ChatScreen> {
   MultiAgentService? _multiAgent;
   int _discussionMsgIdx = -1; // 当前讨论消息索引（-1 表示无）。
   final Map<String, String> _lastPerspectiveOutputs = {}; // 视角 → 最终发言。
+  int _reasoningMsgIdx = -1; // 当前"思考中"块索引（-1 表示无）。
   MemoryManager? _memory;
   SessionDB? _sessionDb;
   String? _currentSessionId;
@@ -202,6 +217,14 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
     _activeAgent?.cancel();
+  }
+
+  @override
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
@@ -359,6 +382,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages.clear();
       _toolRunningIdx.clear();
+      _reasoningMsgIdx = -1;
       _currentSessionId = sessionId;
     });
     await _loadMessagesToUi(sessionId);
@@ -375,6 +399,7 @@ class _ChatScreenState extends State<ChatScreen> {
       setState(() {
         _messages.clear();
         _toolRunningIdx.clear();
+        _reasoningMsgIdx = -1;
         for (final m in stored) {
           final role = m['role'] as String? ?? 'user';
           final content = m['content'] as String?;
@@ -406,6 +431,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages.clear();
       _toolRunningIdx.clear();
+      _reasoningMsgIdx = -1;
       _currentSessionId = newId;
       _pendingPlan = null;
       _pendingTask = null;
@@ -416,6 +442,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _generatePlan(String task) async {
     final config = await JailerConfig.load();
     if (config == null) {
+      setState(() => _running = false);
       _addAssistant('请先配置 AI');
       return;
     }
@@ -483,6 +510,8 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _runTaskWithFullTools(String task, {bool skipRetrieval = false}) async {
     final config = await JailerConfig.load();
     if (config == null) {
+      // 经 _executePlan 进入时 _running 已置 true，此处复位防 UI 永久锁死。
+      setState(() => _running = false);
       _addAssistant('请先配置 AI');
       return;
     }
@@ -520,8 +549,34 @@ class _ChatScreenState extends State<ChatScreen> {
         enabledToolsets: _currentWorkflow.toolsets,
         quietMode: true,
       ),
+      onReasoning: (r) {
+        // 思考阶段流式显示：DeepSeek 类模型先出 reasoning_content 再出 content。
+        // 不显示会导致"沉默很久 → content 整句弹出"的假流式观感。
+        setState(() {
+          if (_reasoningMsgIdx >= 0 && _reasoningMsgIdx < _messages.length) {
+            final prev = _messages[_reasoningMsgIdx].text ?? '';
+            _messages[_reasoningMsgIdx] = _ChatMessage.reasoning(prev + r);
+          } else {
+            _reasoningMsgIdx = _messages.length;
+            _messages.add(_ChatMessage.reasoning(r));
+          }
+        });
+        _scrollToBottom();
+      },
       onDelta: (delta) {
         setState(() {
+          // content 开始：移除思考块，进入正常流式。
+          if (_reasoningMsgIdx >= 0) {
+            _messages.removeAt(_reasoningMsgIdx);
+            // reasoning 块之后的工具卡索引整体前移 1，防 _toolRunningIdx 错位。
+            for (final k in _toolRunningIdx.keys) {
+              final v = _toolRunningIdx[k];
+              if (v != null && v > _reasoningMsgIdx) {
+                _toolRunningIdx[k] = v - 1;
+              }
+            }
+            _reasoningMsgIdx = -1;
+          }
           if (_messages.isEmpty ||
               _messages.last.role == 'user' ||
               _messages.last.role == 'tool') {
@@ -532,6 +587,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 (last.text ?? '') + delta);
           }
         });
+        _scrollToBottom();
       },
       onToolEvent: (name, status) {
         setState(() {
@@ -571,6 +627,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _addAssistant('出错了：$e');
     } finally {
       _activeAgent = null;
+      _reasoningMsgIdx = -1;
       setState(() => _running = false);
     }
     _recordTrajectoryAndRefine(task, lastResult, ranError);
@@ -723,6 +780,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
       }
     });
+    _scrollToBottom();
   }
 
   /// MoA 讨论进度 → 更新讨论消息（对齐官方 moa-progress-event 语义）。
@@ -767,6 +825,7 @@ class _ChatScreenState extends State<ChatScreen> {
           _lastPerspectiveOutputs.clear();
       }
     });
+    _scrollToBottom();
   }
 
   /// 插入或更新当前讨论消息（流式累积，同 _toolRunningIdx 模式）。
@@ -987,10 +1046,14 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _running) return;
+    // 一提交立即锁定发送状态（在 await config 之前），否则模型回答期间
+    // 用户可重复回车穿透，并发执行多个任务。
+    setState(() => _running = true);
     _controller.clear();
 
     final config = await JailerConfig.load();
     if (config == null) {
+      setState(() => _running = false);
       _addUser(text);
       _addAssistant('请先在设置中配置 AI（厂商 + 模型 + API Key）。');
       return;
@@ -1012,10 +1075,24 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _addUser(String text) {
     setState(() => _messages.add(_ChatMessage.user(text)));
+    _scrollToBottom();
   }
 
   void _addAssistant(String text) {
     setState(() => _messages.add(_ChatMessage.assistant(text)));
+    _scrollToBottom();
+  }
+
+  /// 消息列表滚动到底（流式输出时跟随最新文字）。
+  /// 仅当用户已近底部才自动跟随，避免上滑读历史时被强制拉走。
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final pos = _scrollController.position;
+      if (pos.maxScrollExtent - pos.pixels < 120) {
+        _scrollController.jumpTo(pos.maxScrollExtent);
+      }
+    });
   }
 
   @override
@@ -1206,6 +1283,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   )
                 : ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(12),
                     itemCount: _messages.length,
                     itemBuilder: (context, i) {
@@ -1224,6 +1302,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _controller,
+                      enabled: !_running,
                       decoration: const InputDecoration(
                         hintText: '输入任务…',
                         border: OutlineInputBorder(),
@@ -1364,6 +1443,39 @@ class _ChatScreenState extends State<ChatScreen> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: Text(m.text ?? ''),
+          ),
+        );
+      case 'reasoning':
+        // 思考中块（灰色斜体，reasoner 模型推理过程实时显示）。
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.9,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.psychology_outlined,
+                    size: 14, color: Theme.of(context).colorScheme.outline),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    (m.text ?? '').isEmpty ? '思考中…' : m.text!,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontStyle: FontStyle.italic,
+                        color: Theme.of(context).colorScheme.outline),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       case 'assistant':

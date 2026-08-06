@@ -82,6 +82,9 @@ class JailerAgent {
   /// 流式文本回调（UI 打字）。
   final void Function(String delta)? onDelta;
 
+  /// reasoning_content 回调（DeepSeek 类先思考后输出，流式透传）。
+  final void Function(String delta)? onReasoning;
+
   /// 工具调用事件回调（UI 显示工具执行）。
   final void Function(String name, String status)? onToolEvent;
 
@@ -107,6 +110,7 @@ class JailerAgent {
     this.toolDefinitionsProvider,
     this.maxIterations = 500,
     this.onDelta,
+    this.onReasoning,
     this.onToolEvent,
     this.memoryManager,
     this.contextCompressor,
@@ -473,6 +477,7 @@ class JailerAgent {
             messages: messages,
             tools: tools,
             onDelta: onDelta,
+            onReasoning: onReasoning,
             isCancelled: () => _cancelled,
           );
           turn = result;

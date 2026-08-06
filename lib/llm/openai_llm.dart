@@ -112,12 +112,14 @@ class OpenAiLlmClient {
   ///
   /// [isCancelled] 每次收到 chunk 时检查，返回 true 则立即中断流式读取。
   /// [maxTokens] 可选输出上限（默认 null 不发 `max_tokens`，用 provider 默认）。
+  /// [onReasoning] 可选：reasoning_content 逐块回调（DeepSeek 类先思考后输出）。
   Future<LlmTurnResult> chatStream({
     required List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>>? tools,
     void Function(String delta)? onDelta,
     bool Function()? isCancelled,
     int? maxTokens,
+    void Function(String delta)? onReasoning,
   }) async {
     final body = <String, dynamic>{
       'model': config.model,
@@ -130,6 +132,8 @@ class OpenAiLlmClient {
     final request = http.Request('POST', Uri.parse(config.baseUrl))
       ..headers.addAll({
         'Content-Type': 'application/json',
+        // 部分 provider/网关按此头决定是否真正逐 token 流式（缺省可能缓冲整段）。
+        'Accept': 'text/event-stream',
         'Authorization': 'Bearer ${config.apiKey}',
       })
       ..body = jsonEncode(body);
@@ -157,7 +161,12 @@ class OpenAiLlmClient {
     }
 
     try {
-      return await _parseStreamStream(response, onDelta: onDelta, isCancelled: isCancelled);
+      return await _parseStreamStream(
+        response,
+        onDelta: onDelta,
+        isCancelled: isCancelled,
+        onReasoning: onReasoning,
+      );
     } catch (e) {
       // 流中断/解析错误也包成 LlmException。
       if (e is LlmException) {
@@ -247,6 +256,7 @@ class OpenAiLlmClient {
     http.StreamedResponse response, {
     void Function(String delta)? onDelta,
     bool Function()? isCancelled,
+    void Function(String delta)? onReasoning,
   }) async {
     var buffer = '';
     final contentParts = <String>[];
@@ -267,6 +277,7 @@ class OpenAiLlmClient {
         lastIdAtIdx: lastIdAtIdx,
         activeSlotByIdx: activeSlotByIdx,
         onDelta: onDelta,
+        onReasoning: onReasoning,
         finishReason: (v) => finishReason = v,
         usageObj: (v) => usageObj = v,
       );
@@ -311,6 +322,7 @@ void _processSseLine(
   required Map<int, String> lastIdAtIdx,
   required Map<int, int> activeSlotByIdx,
   void Function(String delta)? onDelta,
+  void Function(String delta)? onReasoning,
   required void Function(String) finishReason,
   required void Function(String) usageObj,
 }) {
@@ -352,6 +364,7 @@ void _processSseLine(
   final reasoning = delta['reasoning_content'];
   if (reasoning is String && reasoning.isNotEmpty) {
     reasoningParts.add(reasoning);
+    onReasoning?.call(reasoning);
   }
   final rawCalls = delta['tool_calls'];
   if (rawCalls is! List) {
