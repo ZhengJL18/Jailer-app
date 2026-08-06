@@ -111,17 +111,20 @@ class OpenAiLlmClient {
   /// 返回聚合后的 [LlmTurnResult]。流式文本逐 delta 经 [onDelta] 回调。
   ///
   /// [isCancelled] 每次收到 chunk 时检查，返回 true 则立即中断流式读取。
+  /// [maxTokens] 可选输出上限（默认 null 不发 `max_tokens`，用 provider 默认）。
   Future<LlmTurnResult> chatStream({
     required List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>>? tools,
     void Function(String delta)? onDelta,
     bool Function()? isCancelled,
+    int? maxTokens,
   }) async {
     final body = <String, dynamic>{
       'model': config.model,
       'stream': true,
       'messages': messages,
       if (tools != null && tools.isNotEmpty) 'tools': tools,
+      if (maxTokens != null) 'max_tokens': maxTokens,
     };
 
     final request = http.Request('POST', Uri.parse(config.baseUrl))
@@ -165,14 +168,17 @@ class OpenAiLlmClient {
   }
 
   /// 非流式 chat.completions（流式失败的兜底，Hermes 同样提供）。
+  /// [maxTokens] 可选输出上限（默认 null 不发 `max_tokens`）。
   Future<LlmTurnResult> chat({
     required List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>>? tools,
+    int? maxTokens,
   }) async {
     final body = <String, dynamic>{
       'model': config.model,
       'messages': messages,
       if (tools != null && tools.isNotEmpty) 'tools': tools,
+      if (maxTokens != null) 'max_tokens': maxTokens,
     };
 
     final http.Response response;

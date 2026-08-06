@@ -18,6 +18,7 @@ import 'screens/code_editor_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
+import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
 import 'services/update_service.dart';
 import 'theme/theme_ext.dart';
@@ -79,22 +80,58 @@ class JailerApp extends StatelessWidget {
 
 /// 单条对话消息。
 class _ChatMessage {
-  final String role; // user / assistant / tool
+  final String role; // user / assistant / tool / discussion
   final String? text;
   final String? toolName;
   final String? toolStatus;
+  // discussion 专用：进度/分工展示。
+  final bool discussionRunning;
+  final int? discussionRound;
+  final int? discussionTotalRounds;
+  final String? discussionPerspective;
+  final List<(String, String)> discussionPerspectives; // 每视角最终发言。
+  final String? discussionSummary;
 
   _ChatMessage.user(this.text)
       : role = 'user',
         toolName = null,
-        toolStatus = null;
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null;
   _ChatMessage.assistant(this.text)
       : role = 'assistant',
         toolName = null,
-        toolStatus = null;
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null;
   _ChatMessage.tool(this.toolName, this.toolStatus)
       : role = 'tool',
-        text = null;
+        text = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null;
+  _ChatMessage.discussion({
+    required this.discussionRunning,
+    this.discussionRound,
+    this.discussionTotalRounds,
+    this.discussionPerspective,
+    this.discussionPerspectives = const [],
+    this.discussionSummary,
+  })  : role = 'discussion',
+        text = null,
+        toolName = null,
+        toolStatus = null;
 }
 
 class ChatScreen extends StatefulWidget {
@@ -115,6 +152,9 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _pendingTask; // 待执行的任务原文（批准计划后执行用）。
   String _workflowId = 'daily'; // 当前工作流（AgentWorkflow）。
   JailerAgent? _activeAgent;
+  MultiAgentService? _multiAgent;
+  int _discussionMsgIdx = -1; // 当前讨论消息索引（-1 表示无）。
+  final Map<String, String> _lastPerspectiveOutputs = {}; // 视角 → 最终发言。
   MemoryManager? _memory;
   SessionDB? _sessionDb;
   String? _currentSessionId;
@@ -136,11 +176,37 @@ class _ChatScreenState extends State<ChatScreen> {
     registerClarifyTool();
     clarifyHandler = _showClarifyDialog;
     registerDelegateTool();
-    delegateHandler = _runSubAgent;
+    delegateHandler = (task, toolsets, depth) async {
+      final svc = await _ensureMultiAgent();
+      if (svc == null) return '子任务未执行：AI 未配置';
+      return svc.runSubAgent(
+        task: task,
+        toolsets: toolsets,
+        depth: depth,
+        onToolEvent: _onSubAgentToolEvent,
+      );
+    };
     registerMoaTool();
-    moaHandler = _runDiscussion;
+    moaHandler = (topic, rounds) async {
+      final svc = await _ensureMultiAgent();
+      if (svc == null) return '讨论未执行：AI 未配置';
+      return svc.runDiscussion(
+        topic: topic,
+        rounds: rounds,
+        onProgress: _onMoaProgress,
+      );
+    };
     registerCompanyTool();
-    departmentHandler = _runDepartment;
+    departmentHandler = (department, task, depth) async {
+      final svc = await _ensureMultiAgent();
+      if (svc == null) return '部门任务未执行：AI 未配置';
+      return svc.runDepartment(
+        department: department,
+        task: task,
+        depth: depth,
+        onToolEvent: _onSubAgentToolEvent,
+      );
+    };
     registerCronTools();
     cronFireHandler = _fireCronJob;
     startCronScheduler();
@@ -450,211 +516,90 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// delegate 回调：子 agent 独立执行任务，返回结果摘要。
-  /// [depth] 当前层数（0=主代理，1=一级子代理…）；最大 [maxAgentDepth]。
-  Future<String> _runSubAgent(
-    String task,
-    List<String>? toolsets,
-    int depth,
-  ) async {
+  /// 惰性创建多代理执行器（子代理/部门/讨论共用，复用连接）。
+  Future<MultiAgentService?> _ensureMultiAgent() async {
+    if (_multiAgent != null) return _multiAgent;
     final config = await JailerConfig.load();
-    if (config == null) {
-      return '子任务未执行：AI 未配置';
-    }
-    // 分级委派：子任务优先用快模型（未配置则 fallback 主模型）。
-    final fastConfig = await JailerConfig.loadFastConfig();
-    final llm = OpenAiLlmClient(
-      config: fastConfig ?? config.toLlmConfig(),
+    if (config == null) return null;
+    final fast = await JailerConfig.loadFastConfig();
+    _multiAgent = MultiAgentService(
+      llm: OpenAiLlmClient(config: config.toLlmConfig()),
+      fastLlm: fast != null ? OpenAiLlmClient(config: fast) : null,
+      isCancelled: () => _activeAgent?.isCancelled ?? false,
     );
-    // 子代理可继续委派（下探），深度由 currentAgentDepth 维护（串行安全）。
-    // 过滤 company（子代理不派部门，防部门递归）。
-    final effectiveToolsets =
-        (toolsets ?? const ['file', 'web', 'git'])
-            .where((t) => t != 'company')
-            .toList();
-    final subAgent = JailerAgent(
-      llm: llm,
-      systemPrompt: '你是 Hermes 的第 $depth 层子代理。独立完成给定任务并'
-          '简洁汇报结果。任务太复杂时，可继续 delegate_task 派给更下层的'
-          '子代理。用中文。',
-      toolDefinitionsProvider: () => getToolDefinitions(
-        enabledToolsets: effectiveToolsets,
-        quietMode: true,
-      ),
-      maxIterations: 20,
-    );
-    // 子代理运行期间：currentAgentDepth = depth + 1（本层子代理）。
-    // 它的 delegate 工具读 currentAgentDepth 作深度，超限则被 _handleDelegate 拦。
-    final prevDepth = currentAgentDepth;
-    currentAgentDepth = depth + 1;
-    try {
-      final result = await subAgent.runConversation(task);
-      return result.finalResponse ?? '(子代理无输出)';
-    } catch (e) {
-      return '子任务失败：$e';
-    } finally {
-      currentAgentDepth = prevDepth;
-    }
+    return _multiAgent;
   }
 
-  /// 部门执行器（公司模式）：部门内角色先讨论再分工执行，汇总给 CEO。
-  ///
-  /// [department] 部门 id；[task] 任务；[depth] 当前层数。
-  /// 流程：1) 角色间一轮讨论（互看意见）2) 各角色分工执行 3) 经理汇总。
-  Future<String> _runDepartment(String department, String task, int depth) async {
-    final dep = findActiveDepartment(department);
-    if (dep == null) {
-      return '未知部门：$department';
-    }
-    final config = await JailerConfig.load();
-    if (config == null) {
-      return '部门任务未执行：AI 未配置';
-    }
-    final llm = OpenAiLlmClient(config: config.toLlmConfig());
-
-    // 第 1 步：角色间讨论一轮（各自给专业意见，互看后补充/反驳）。
-    String discussionBlock = '';
-    if (dep.roles.length > 1) {
-      final opinions = await Future.wait(
-        dep.roles.map((role) async {
-          try {
-            final turn = await llm.chatStream(messages: [
-              {
-                'role': 'system',
-                'content': '你是「${dep.name}」的$role。围绕部门任务给出你的'
-                    '专业意见，重点是你视角下的关键点。用中文。',
-              },
-              {'role': 'user', 'content': '部门任务：$task'},
-            ]);
-            return '「$role」：${turn.content ?? '(无意见)'}';
-          } catch (e) {
-            return '「$role」：（讨论失败 $e）';
-          }
-        }),
-      );
-      discussionBlock = opinions.join('\n');
-    }
-
-    // 第 2 步：各角色带着讨论结果分工执行（角色子代理可用工具，可下探）。
-    // 角色子代理并行跑：各自设 currentAgentDepth = depth（下探时 depth+1）。
-    final prevDepth = currentAgentDepth;
-    final roleOutputs = await Future.wait(
-      dep.roles.map((role) async {
-        final roleAgent = JailerAgent(
-          llm: llm,
-          systemPrompt: '你是「${dep.name}」的$role。参考团队讨论，完成你的'
-              '分工工作。可调用工具。用中文。',
-          toolDefinitionsProvider: () => getToolDefinitions(
-            // 角色不再派部门（防部门递归），但可 delegate 子任务/讨论。
-            enabledToolsets: dep.toolsets
-                .where((t) => t != 'company')
-                .toList(),
-            quietMode: true,
-          ),
-          maxIterations: 20,
-        );
-        currentAgentDepth = depth + 1;
-        try {
-          final result = await roleAgent.runConversation(
-            '$task\n\n团队讨论：\n$discussionBlock',
-          );
-          return '「$role」：${result.finalResponse ?? '(无输出)'}';
-        } catch (e) {
-          return '「$role」：执行失败 $e';
+  /// 子代理/部门角色的工具事件 → UI 工具卡（带「子代理·」前缀，层级可辨）。
+  void _onSubAgentToolEvent(String name, String status) {
+    if (!mounted) return;
+    final displayName = '子代理·$name';
+    setState(() {
+      if (status == 'running') {
+        _toolRunningIdx[displayName] = _messages.length;
+        _messages.add(_ChatMessage.tool(displayName, status));
+      } else {
+        final idx = _toolRunningIdx.remove(displayName);
+        if (idx != null && idx < _messages.length) {
+          _messages[idx] = _ChatMessage.tool(displayName, status);
+        } else {
+          _messages.add(_ChatMessage.tool(displayName, status));
         }
-      }),
-    );
-    currentAgentDepth = prevDepth;
-
-    // 第 3 步：主模型（部门经理）汇总各角色输出给 CEO。
-    try {
-      final summaryTurn = await llm.chatStream(messages: [
-        {
-          'role': 'system',
-          'content': '你是「${dep.name}」的经理。综合下面部门成员的输出，'
-              '给 CEO 一个简洁的最终结果：提炼关键结论，合并重复，标出分歧。'
-              '用中文。',
-        },
-        {
-          'role': 'user',
-          'content': '部门任务：$task\n\n成员输出：\n${roleOutputs.join('\n')}',
-        },
-      ]);
-      final summary = summaryTurn.content ?? '';
-      return summary.isNotEmpty ? summary : roleOutputs.join('\n');
-    } catch (e) {
-      return roleOutputs.join('\n');
-    }
+      }
+    });
   }
 
-  /// 多子代理真对话（Kimi 式）：各视角子代理逐轮并行讨论，主模型综合。
-  ///
-  /// [topic] 讨论主题；[rounds] 轮数（默认2，上限4）。
-  /// 每轮所有子代理并行发言（看到上轮彼此内容），N 轮后主模型综合。
-  Future<String> _runDiscussion(String topic, int rounds) async {
-    final config = await JailerConfig.load();
-    if (config == null) {
-      return '讨论未执行：AI 未配置';
-    }
-    final llm = OpenAiLlmClient(config: config.toLlmConfig());
-
-    // 各子代理视角人设。
-    const perspectives = [
-      ('架构', '你是一位资深架构师，关注系统结构、模块划分、可扩展性和维护性。'),
-      ('性能', '你是一位性能优化专家，关注效率、资源占用、瓶颈和权衡。'),
-      ('严谨', '你是一位批判性审查者，关注边界情况、错误处理、风险和遗漏。'),
-    ];
-
-    // 共享讨论记录（每轮追加所有人的发言）。
-    final transcript = <String>[];
-    final roundsClamped = rounds.clamp(1, 4);
-
-    for (var r = 1; r <= roundsClamped; r++) {
-      // 每轮并行：所有子代理看到上轮记录，各自回应。
-      final roundOutputs = await Future.wait(
-        perspectives.map((p) async {
-          final system = '你是讨论参与者「${p.$1}」。${p.$2}\n'
-              '围绕主题给出你的专业见解。讨论规则：观点要具体、可反驳、'
-              '能补充或修正他人的意见。用中文。';
-          final messages = <Map<String, dynamic>>[
-            {'role': 'system', 'content': system},
-            {'role': 'user', 'content': '主题：$topic\n\n讨论记录：\n'
-                '${transcript.isEmpty ? '(这是第一轮，请给出你的初始见解)' : transcript.join('\n')}'},
-          ];
-          try {
-            final turn = await llm.chatStream(messages: messages);
-            return (p.$1, turn.content ?? '(无发言)');
-          } catch (e) {
-            return (p.$1, '(发言失败：$e)');
+  /// MoA 讨论进度 → 更新讨论消息（对齐官方 moa-progress-event 语义）。
+  void _onMoaProgress(MoaProgress p) {
+    if (!mounted) return;
+    setState(() {
+      switch (p.stage) {
+        case MoaStage.roundStart:
+          _upsertDiscussion(_ChatMessage.discussion(
+            discussionRunning: true,
+            discussionRound: p.round,
+            discussionTotalRounds: p.totalRounds,
+          ));
+        case MoaStage.perspectiveStart:
+          _upsertDiscussion(_ChatMessage.discussion(
+            discussionRunning: true,
+            discussionRound: p.round,
+            discussionTotalRounds: p.totalRounds,
+            discussionPerspective: p.perspective,
+          ));
+        case MoaStage.perspectiveDone:
+          if (p.perspective != null) {
+            _lastPerspectiveOutputs[p.perspective!] = p.output ?? '';
           }
-        }),
-      );
-
-      // 把本轮发言追加到共享记录。
-      for (final (name, text) in roundOutputs) {
-        transcript.add('「$name」：$text');
+        case MoaStage.synthesizing:
+          _upsertDiscussion(_ChatMessage.discussion(
+            discussionRunning: true,
+            discussionRound: p.round,
+            discussionTotalRounds: p.totalRounds,
+          ));
+        case MoaStage.done:
+          _upsertDiscussion(_ChatMessage.discussion(
+            discussionRunning: false,
+            discussionRound: p.round,
+            discussionTotalRounds: p.totalRounds,
+            discussionPerspectives: [
+              for (final e in _lastPerspectiveOutputs.entries) (e.key, e.value),
+            ],
+            discussionSummary: p.output,
+          ));
+          _discussionMsgIdx = -1;
+          _lastPerspectiveOutputs.clear();
       }
-    }
+    });
+  }
 
-    // 主模型综合所有讨论给最终结论。
-    try {
-      final finalTurn = await llm.chatStream(messages: [
-        {
-          'role': 'system',
-          'content': '你是一位讨论主持人。综合下面所有专家的讨论，给出一个'
-              '清晰的最终结论：总结共识、点明分歧、给出你的判断。用中文。',
-        },
-        {
-          'role': 'user',
-          'content': '主题：$topic\n\n完整讨论记录：\n${transcript.join('\n')}',
-        },
-      ]);
-      final summary = finalTurn.content ?? '';
-      return summary.isNotEmpty
-          ? summary
-          : '讨论完成，但综合失败。\n\n${transcript.join('\n')}';
-    } catch (e) {
-      return '讨论完成，但综合失败：$e\n\n${transcript.join('\n')}';
+  /// 插入或更新当前讨论消息（流式累积，同 _toolRunningIdx 模式）。
+  void _upsertDiscussion(_ChatMessage msg) {
+    if (_discussionMsgIdx >= 0 && _discussionMsgIdx < _messages.length) {
+      _messages[_discussionMsgIdx] = msg;
+    } else {
+      _discussionMsgIdx = _messages.length;
+      _messages.add(msg);
     }
   }
 
@@ -680,8 +625,14 @@ class _ChatScreenState extends State<ChatScreen> {
     // 显示 cron 触发的提示。
     _addAssistant('⏰ [定时任务 ${job.id}] ${job.schedule}\n任务：${job.task}');
     // 附带 cron 工具集：任务文本里若写了「做完删除本任务」，子代理才真正有权删。
-    final result =
-        await _runSubAgent(job.task, const ['file', 'web', 'git', 'cron'], 0);
+    final svc = await _ensureMultiAgent();
+    final result = svc != null
+        ? await svc.runSubAgent(
+            task: job.task,
+            toolsets: const ['file', 'web', 'git', 'cron'],
+            depth: 0,
+          )
+        : '（AI 未配置）';
     if (!mounted) return;
     _addAssistant('[定时任务完成]\n$result');
   }
@@ -1145,6 +1096,78 @@ class _ChatScreenState extends State<ChatScreen> {
               data: m.text ?? '',
               selectable: true,
             ),
+          ),
+        );
+      case 'discussion':
+        if (m.discussionRunning) {
+          final status = m.discussionPerspective != null
+              ? '第 ${m.discussionRound}/${m.discussionTotalRounds} 轮 · '
+                  '「${m.discussionPerspective}」思考中…'
+              : '第 ${m.discussionRound}/${m.discussionTotalRounds} 轮进行中…';
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                const SizedBox(width: 8),
+                Text('🗣️ MoA 讨论 $status',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          );
+        }
+        // 完成：结构化分工块（Reference N — 视角 + 观点 + 综合结论）。
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border.all(color: Theme.of(context).dividerColor),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.record_voice_over,
+                      size: 16, color: context.appPalette.primary),
+                  const SizedBox(width: 6),
+                  Text('🗣️ MoA 讨论完成（${m.discussionTotalRounds} 轮）',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600)),
+                ],
+              ),
+              const SizedBox(height: 8),
+              for (var i = 0; i < m.discussionPerspectives.length; i++) ...[
+                Text('Reference ${i + 1} — ${m.discussionPerspectives[i].$1}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.appPalette.primary,
+                        fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(m.discussionPerspectives[i].$2,
+                    style: Theme.of(context).textTheme.bodySmall),
+                const SizedBox(height: 6),
+              ],
+              const Divider(height: 12),
+              Text('📌 综合结论',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Text(m.discussionSummary ?? '',
+                  style: Theme.of(context).textTheme.bodySmall),
+            ],
           ),
         );
       case 'tool':

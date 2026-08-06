@@ -63,5 +63,7 @@ void registerMoaTool() {
     handler: _handleMoa,
     isAsync: true,
     emoji: '🗣️',
+    // 长讨论结果截断，防污染主 agent 上下文（对齐官方 _truncate_tool_result）。
+    maxResultSizeChars: 8000,
   );
 }

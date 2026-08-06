@@ -22,6 +22,7 @@ import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../db/session_db.dart';
 import '../llm/openai_llm.dart';
+import '../tools/delegate_tool.dart' show currentAgentDepth;
 import '../tools/memory_manager.dart';
 import '../tools/model_tools.dart';
 import 'context_compressor.dart';
@@ -96,6 +97,10 @@ class JailerAgent {
   /// 会话 id（可选，落库时用）。
   final String? sessionId;
 
+  /// 代理层数（0=主代理，N=第 N 层子代理）。工具执行段用它设置 delegate 工具
+  /// 读取的深度，避免并行子代理共享全局 [currentAgentDepth] 时互相覆盖。
+  final int agentDepth;
+
   JailerAgent({
     required this.llm,
     required this.systemPrompt,
@@ -107,6 +112,7 @@ class JailerAgent {
     this.contextCompressor,
     this.sessionDb,
     this.sessionId,
+    this.agentDepth = 0,
   }) : iterationBudget = IterationBudget(maxIterations);
 
   /// 判断工具执行结果是否为错误（dispatch 失败约定：JSON 含非空 "error" 键，
@@ -578,6 +584,11 @@ class JailerAgent {
           }
 
           onToolEvent?.call(tc.name, 'running');
+          // 工具执行段：把当前 agent 的深度临时设给 delegate 工具读取
+          // （_handleDelegate 在首个 await 前同步读 currentAgentDepth）。
+          // 用 try/finally 恢复，并行子代理互不覆盖。
+          final savedDepth = currentAgentDepth;
+          currentAgentDepth = agentDepth;
           String result;
           try {
             result = await handleFunctionCall(tc.name, args);
@@ -586,6 +597,8 @@ class JailerAgent {
             // 之后缺 tool 消息 → OpenAI 兼容后端 400。
             result = jsonEncode({'error': 'tool execution failed: $e'});
             debugPrint('[Agent] 工具 ${tc.name} 执行异常: $e\n$st');
+          } finally {
+            currentAgentDepth = savedDepth;
           }
           onToolEvent?.call(tc.name, 'done');
 
