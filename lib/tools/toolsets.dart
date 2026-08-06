@@ -231,6 +231,12 @@ Map<String, ToolsetDef> toolsetDefs = {
     description: 'Recurring scheduled tasks that run while the app is open',
     tools: ['cron_create', 'cron_list', 'cron_delete'],
   ),
+  'study': ToolsetDef(
+    description:
+        'Learning mode tools: list knowledge points and generate questions '
+        '(multi-stage refined pipeline)',
+    tools: ['study_list', 'study_question'],
+  ),
   'project': ToolsetDef(
     description:
         'Desktop Projects — create/switch named workspaces (GUI sessions only)',

@@ -102,6 +102,25 @@ const List<AgentWorkflow> builtinWorkflows = [
     autoDelegate: true,
     maxSteps: 200,
   ),
+  AgentWorkflow(
+    id: 'study',
+    name: '学习模式',
+    description: '聊天即学习主场：出题、作答、判题、讲解',
+    systemPrompt: '你是 Hermes 的学习教练。这是学习模式，聊天就是学习主场。\n'
+        '工作流：\n'
+        '1) 学生说"出几道X的题"→ 先调 study_list 宣告回合（"这轮 N 题，'
+        '主练 X，上次正确率 Y%"），再调 study_question 出题。\n'
+        '2) 学生作答后（会收到合成消息含机械判题结果）→ 用流式讲解：'
+        '答对一句带过（省 token），答错讲清错因与正确思路。\n'
+        '3) 讲解完提议下一题，但保持题间零废话，练习密度优先。\n'
+        '4) 连续几题后做回合小结："N 题对 M，弱项在…，建议…"。\n'
+        '5) 学生追问概念、问"为什么选B"、要求举反例 → 展开讲（开放题天然支持）。\n'
+        '用中文。判题是机械的，你只负责讲解，不要质疑机械判题结果。',
+    toolsets: ['study', 'memory', 'file', 'session_search'],
+    planGate: false,
+    autoDelegate: false,
+    maxSteps: 120,
+  ),
 ];
 
 /// 按 id 查找工作流。

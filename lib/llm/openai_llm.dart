@@ -140,12 +140,12 @@ class OpenAiLlmClient {
 
     http.StreamedResponse response;
     try {
-      // 建连+响应头超时：鸿蒙 QoE/弱网下请求可能无限挂起（App 无任何输出）。
-      // 挂起比报错更糟 —— 用户看到「无回应」而非「出错了」。30s 足够正常
-      // 流式响应，超时抛 LlmException 走 agent 重试。
+      // 建连+响应头超时（connect 15s）：鸿蒙 QoE/弱网下请求可能无限挂起。
+      // 挂起比报错更糟 —— 用户看到「无回应」而非「出错了」。超时抛
+      // LlmException 走 agent 重试。
       response = await _client
           .send(request)
-          .timeout(const Duration(seconds: 30));
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       // 网络错误（SocketException/ClientException/TimeoutException）统一包成
       // LlmException，让调用方（agent 主循环）能捕获并重试。
@@ -288,7 +288,13 @@ class OpenAiLlmClient {
     final timedStream = utf8.decoder
         .bind(response.stream)
         .timeout(const Duration(seconds: 30));
+    // 总时长兜底（60s）：整段流式读取不超过此上限，防极端挂起。
+    final totalTimeout = Duration(seconds: 60);
+    final totalDeadline = DateTime.now().add(totalTimeout);
     await for (final chunk in timedStream) {
+      if (DateTime.now().isAfter(totalDeadline)) {
+        throw LlmException('LLM stream timeout after 60s');
+      }
       if (isCancelled?.call() ?? false) {
         break; // 用户中断：丢弃剩余流，返回已聚合内容。
       }

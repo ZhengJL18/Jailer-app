@@ -24,6 +24,8 @@ import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
+import 'services/study_engine.dart';
+import 'services/study_question_service.dart';
 import 'services/update_service.dart';
 import 'theme/theme_ext.dart';
 import 'theme/theme_provider.dart';
@@ -40,6 +42,7 @@ import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
+import 'tools/study_tools.dart';
 import 'tools/todo_tool.dart';
 import 'tools/vision_tool.dart';
 import 'tools/web_tools.dart';
@@ -213,6 +216,9 @@ class _ChatScreenState extends State<ChatScreen> {
   EditJournal? _editJournal;
   RefinePipeline? _refine;
   bool _refineSuggesting = false;
+  // 学习模式。
+  StudyEngine? _studyEngine;
+  StudyQuestionService? _studyQuestionService;
 
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
@@ -274,6 +280,9 @@ class _ChatScreenState extends State<ChatScreen> {
     cronFireHandler = _fireCronJob;
     startCronScheduler();
     registerVisionTool();
+    registerStudyTools();
+    studyListHandler = _studyList;
+    studyQuestionHandler = _studyQuestion;
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     final init = _initCwd();
@@ -690,6 +699,64 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// study_list 执行器：返回科目/知识点（带掌握度）JSON。
+  Future<String> _studyList() async {
+    final engine = _studyEngine;
+    if (engine == null) return '{"error":"学习引擎未初始化"}';
+    try {
+      final kps = await engine.listKps();
+      final bySubject = <String, List<Map<String, dynamic>>>{};
+      for (final k in kps) {
+        bySubject.putIfAbsent(k.subjectName, () => []).add({
+          'kp_id': k.id,
+          'name': k.name,
+          'mastery': k.mastery,
+          'recent_count': k.recentCount,
+        });
+      }
+      return jsonEncode({
+        'subjects': [
+          for (final e in bySubject.entries)
+            {'subject': e.key, 'kps': e.value},
+        ],
+      });
+    } catch (e) {
+      return '{"error":"$e"}';
+    }
+  }
+
+  /// study_question 执行器：多阶段精炼出题。
+  Future<String> _studyQuestion(int kpId, {String? targetDifficulty}) async {
+    final engine = _studyEngine;
+    if (engine == null) return '{"error":"学习引擎未初始化"}';
+    final svc = _studyQuestionService;
+    if (svc == null) {
+      final config = await JailerConfig.load();
+      if (config == null) return '{"error":"AI 未配置"}';
+      final dir = (await getApplicationDocumentsDirectory()).path;
+      _studyQuestionService = StudyQuestionService(
+        llm: OpenAiLlmClient(config: config.toLlmConfig()),
+        engine: engine,
+        subjectLibraryDir: '$dir/subject_library',
+        profilePath: '$dir/subject_library/0_profile.md',
+        skillPath: '$dir/skills/question-design/SKILL.md',
+        isCancelled: () => _activeAgent?.isCancelled ?? false,
+      );
+    }
+    try {
+      final result = await _studyQuestionService!.generate(
+        kpId,
+        targetDifficulty: targetDifficulty,
+      );
+      if (result.error != null) {
+        return '{"error":"${result.error}"}';
+      }
+      return result.json ?? '{"error":"无输出"}';
+    } catch (e) {
+      return '{"error":"出题失败: $e"}';
+    }
+  }
+
   Future<void> _suggestRefineInner() async {
     var refine = _refine;
     if (refine == null) {
@@ -1034,6 +1101,15 @@ class _ChatScreenState extends State<ChatScreen> {
       final skillsRoot = '$dir/skills';
       Directory(skillsRoot).createSync(recursive: true);
       registerSkillTools(skillsRoot: skillsRoot);
+    } catch (_) {}
+    // 学习模式：study.db（事实层）+ 画像/讲义目录。
+    try {
+      final engine = StudyEngine(dbPath: '$dir/study.db');
+      await engine.init();
+      _studyEngine = engine;
+    } catch (_) {}
+    try {
+      Directory('$dir/subject_library').createSync(recursive: true);
     } catch (_) {}
     // 自进化（Continual Harness）：轨迹 / prompt notes / 编辑台账。
     try {
