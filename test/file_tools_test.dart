@@ -154,32 +154,32 @@ void main() {
   });
 
   group('searchFileTool', () {
-    test('content search finds matches', () {
+    test('content search finds matches', () async {
       File(p.join(tmp.path, 's1.txt')).writeAsStringSync('apple\nbanana\n');
-      final result = searchFileTool(pattern: 'banana');
+      final result = await searchFileTool(pattern: 'banana');
       final map = jsonDecode(result) as Map;
       expect(map['total_count'], 1);
       expect(map['matches'].length, 1);
       expect(map['matches'][0]['line'], 2);
     });
 
-    test('files search by glob', () {
+    test('files search by glob', () async {
       File(p.join(tmp.path, 'a.dart')).writeAsStringSync('x');
       File(p.join(tmp.path, 'b.py')).writeAsStringSync('y');
-      final result = searchFileTool(pattern: '*.dart', target: 'files');
+      final result = await searchFileTool(pattern: '*.dart', target: 'files');
       final map = jsonDecode(result) as Map;
       expect(map['files'].length, 1);
       expect(map['files'][0], endsWith('a.dart'));
     });
 
-    test('large dir search truncates at walk cap (no full-tree hang)', () {
+    test('large dir search truncates at walk cap (no full-tree hang)', () async {
       // 超过 maxSearchFiles(10000) 的条目数 → 受控遍历必须截断并标记 truncated，
       // 而不能像旧的 listSync(recursive) 那样把整棵树物化（会卡死 UI 主 isolate）。
       const walkCap = 10000;
       for (var i = 0; i < walkCap + 10; i++) {
         File(p.join(tmp.path, 'f$i.txt')).writeAsStringSync('');
       }
-      final result = searchFileTool(pattern: '*.txt', target: 'files');
+      final result = await searchFileTool(pattern: '*.txt', target: 'files');
       // 截断时 searchFileTool 会在 JSON 后追加 [Hint: Results truncated...] 提示行。
       final map = jsonDecode(result.split('\n').first) as Map;
       // 至少遍历了上限内的文件；不要求精确值，只验证不会全量返回（>cap 会被截断）。

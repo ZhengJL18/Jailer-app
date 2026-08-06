@@ -13,6 +13,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 
 import 'binary_extensions.dart';
 import 'file_operations.dart';
@@ -305,7 +306,12 @@ String patchTool({
 }
 
 /// search_files 工具。
-String searchFileTool({
+///
+/// 搜索在后台 isolate（[Isolate.run]）中执行 —— Dart 原生搜索是同步文件
+/// I/O（listSync + readAsStringSync + 逐行正则），直接跑在主 isolate 会
+/// 冻结 UI（全盘搜索时表现就是"调用工具时卡死/ANR"）。搜索参数都是
+/// 可发送的 primitive，在后台用干净实例执行并把 JSON 字符串传回。
+Future<String> searchFileTool({
   required String pattern,
   String target = 'content',
   String path = '.',
@@ -314,7 +320,7 @@ String searchFileTool({
   dynamic offset = 0,
   String outputMode = 'content',
   int context = 0,
-}) {
+}) async {
   try {
     final (offsetN, limitN) = normalizeSearchPagination(offset, limit);
     // grep/find 别名映射。
@@ -326,20 +332,32 @@ String searchFileTool({
       return toolError(blockError);
     }
 
+    // LocalFileOperations 实例不能跨 isolate 发送，把 cwd/外部访问开关等
+    // primitive 状态取出来，在后台重建一个干净实例执行搜索。
     final fileOps = _getFileOps();
-    final result = fileOps.search(
-      pattern,
-      path: path,
-      target: resolvedTarget,
-      fileGlob: fileGlob,
-      limit: limitN,
-      offset: offsetN,
-      outputMode: outputMode,
-      context: context,
-    );
-    final resultDict = result.toDict(densify: true);
-    final resultJson = jsonEncode(resultDict);
+    final cwd = fileOps.cwd;
+    final allowExternal = fileOps.allowExternalAccess;
+
+    final resultJson = await Isolate.run(() {
+      final ops = LocalFileOperations(
+        cwd: cwd,
+        allowExternalAccess: allowExternal,
+      );
+      final result = ops.search(
+        pattern,
+        path: path,
+        target: resolvedTarget,
+        fileGlob: fileGlob,
+        limit: limitN,
+        offset: offsetN,
+        outputMode: outputMode,
+        context: context,
+      );
+      return jsonEncode(result.toDict(densify: true));
+    });
+
     // 截断时给显式 next offset 提示。
+    final resultDict = jsonDecode(resultJson) as Map<String, dynamic>;
     if (resultDict['truncated'] == true) {
       final nextOffset = offsetN + limitN;
       return '$resultJson\n\n[Hint: Results truncated. Use offset=$nextOffset to see more, or narrow with a more specific pattern or file_glob.]';
