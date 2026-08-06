@@ -32,7 +32,24 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Run tests
-        run: flutter test
+        run: |
+          set -o pipefail
+          flutter test 2>&1 | tee /tmp/flutter_test.log
+
+      # 测试失败时把详情以 ::error:: 写入 annotations（日志正文需登录才能看，
+      # 这里把关键行暴露到可匿名读取的 annotations 上，方便诊断 CI）。
+      - name: Expose test failure details
+        if: failure()
+        run: |
+          grep -E "\[E\]|Expected:|Actual:|Which:|The test description was:|═══|failed" /tmp/flutter_test.log \
+            | head -80 | sed 's/^/::error::/' || true
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-test-log
+          path: /tmp/flutter_test.log
 
       # release 构建：用仓库内的 jailer-release.jks 固定签名（debug/release 同签名，
       # 覆盖安装不丢数据）。--build-number 用 github.run_number 单调递增 →
