@@ -149,6 +149,18 @@ String skillManageTool({
   }
 }
 
+/// 公开创建 skill（refine 自进化与 skill_manage 工具共用同一逻辑）。
+String createSkill(SkillDiscovery d, String name, String content, String? category) {
+  final result = _createSkill(d, name, content, category);
+  return result;
+}
+
+/// 公开 patch skill（refine 自进化用）。
+String patchSkill(SkillDiscovery d, String name, String oldString, String newString,
+    {bool replaceAll = false}) {
+  return _patchSkill(d, name, oldString, newString, replaceAll);
+}
+
 String _createSkill(SkillDiscovery d, String name, String content, String? category) {
   // 校验 name。
   if (!isValidSkillName(name)) {

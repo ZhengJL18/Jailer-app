@@ -14,6 +14,10 @@ import 'agent/workflow.dart';
 import 'config/jailer_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
+import 'refine/edit_journal.dart';
+import 'refine/prompt_notes_store.dart';
+import 'refine/refine_pipeline.dart';
+import 'refine/trajectory_store.dart';
 import 'screens/code_editor_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/github_screen.dart';
@@ -80,7 +84,7 @@ class JailerApp extends StatelessWidget {
 
 /// 单条对话消息。
 class _ChatMessage {
-  final String role; // user / assistant / tool / discussion
+  final String role; // user / assistant / tool / discussion / refine
   final String? text;
   final String? toolName;
   final String? toolStatus;
@@ -91,6 +95,10 @@ class _ChatMessage {
   final String? discussionPerspective;
   final List<(String, String)> discussionPerspectives; // 每视角最终发言。
   final String? discussionSummary;
+  // refine 专用：自进化建议卡。
+  final List<RefineProposal> refineProposals;
+  final bool refineApplied;
+  final bool refineIgnored;
 
   _ChatMessage.user(this.text)
       : role = 'user',
@@ -101,7 +109,10 @@ class _ChatMessage {
         discussionTotalRounds = null,
         discussionPerspective = null,
         discussionPerspectives = const [],
-        discussionSummary = null;
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false;
   _ChatMessage.assistant(this.text)
       : role = 'assistant',
         toolName = null,
@@ -111,7 +122,10 @@ class _ChatMessage {
         discussionTotalRounds = null,
         discussionPerspective = null,
         discussionPerspectives = const [],
-        discussionSummary = null;
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false;
   _ChatMessage.tool(this.toolName, this.toolStatus)
       : role = 'tool',
         text = null,
@@ -120,7 +134,10 @@ class _ChatMessage {
         discussionTotalRounds = null,
         discussionPerspective = null,
         discussionPerspectives = const [],
-        discussionSummary = null;
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false;
   _ChatMessage.discussion({
     required this.discussionRunning,
     this.discussionRound,
@@ -131,7 +148,24 @@ class _ChatMessage {
   })  : role = 'discussion',
         text = null,
         toolName = null,
-        toolStatus = null;
+        toolStatus = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false;
+  _ChatMessage.refine({
+    required this.refineProposals,
+    this.refineApplied = false,
+    this.refineIgnored = false,
+  })  : role = 'refine',
+        text = null,
+        toolName = null,
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null;
 }
 
 class ChatScreen extends StatefulWidget {
@@ -158,6 +192,12 @@ class _ChatScreenState extends State<ChatScreen> {
   MemoryManager? _memory;
   SessionDB? _sessionDb;
   String? _currentSessionId;
+  // 自进化（Continual Harness）存储。
+  TrajectoryStore? _trajectory;
+  PromptNotesStore? _promptNotes;
+  EditJournal? _editJournal;
+  RefinePipeline? _refine;
+  bool _refineSuggesting = false;
 
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
@@ -494,8 +534,11 @@ class _ChatScreenState extends State<ChatScreen> {
         });
       },
     );
+    ConversationResult? lastResult;
+    var ranError = false;
     try {
       final result = await _activeAgent!.runConversation(task);
+      lastResult = result;
       if (result.completed &&
           result.finalResponse != null &&
           _messages.isNotEmpty &&
@@ -509,10 +552,128 @@ class _ChatScreenState extends State<ChatScreen> {
         _addAssistant(result.finalResponse!);
       }
     } catch (e) {
+      ranError = true;
       _addAssistant('出错了：$e');
     } finally {
       _activeAgent = null;
       setState(() => _running = false);
+    }
+    _recordTrajectoryAndRefine(task, lastResult, ranError);
+  }
+
+  /// 任务完成后：写轨迹 + fire-and-forget 触发自进化建议。
+  void _recordTrajectoryAndRefine(
+    String task,
+    ConversationResult? result,
+    bool ranError,
+  ) {
+    final traj = _trajectory;
+    if (traj == null) return;
+    // 提取调用过的工具名（从 assistant 消息的 tool_calls）。
+    final toolNames = <String>[];
+    if (result != null) {
+      for (final m in result.messages) {
+        final calls = m['tool_calls'];
+        if (calls is List) {
+          for (final c in calls) {
+            if (c is Map<String, dynamic>) {
+              final fn = c['function'];
+              if (fn is Map && fn['name'] is String) {
+                toolNames.add(fn['name'] as String);
+              }
+            }
+          }
+        }
+      }
+    }
+    final outcome = ranError
+        ? 'error'
+        : (result?.completed ?? false)
+            ? 'success'
+            : (result?.error == 'cancelled' ? 'cancelled' : 'budget');
+    traj.append(TrajectoryRecord(
+      ts: DateTime.now(),
+      sessionId: _currentSessionId ?? 'main',
+      userPrompt: task,
+      toolNames: toolNames.toSet().toList(),
+      completed: result?.completed ?? false,
+      outcome: outcome,
+      finalExcerpt: result?.finalResponse != null &&
+              (result!.finalResponse!.length > 200)
+          ? result.finalResponse!.substring(0, 200)
+          : result?.finalResponse,
+    ));
+    // fire-and-forget：不阻塞主流程，建议卡追加到消息流。
+    unawaited(_suggestRefine());
+  }
+
+  /// 异步跑 refine 提议，非空则追加建议卡。
+  Future<void> _suggestRefine() async {
+    if (_refineSuggesting) return;
+    _refineSuggesting = true;
+    try {
+      await _suggestRefineInner();
+    } finally {
+      _refineSuggesting = false;
+    }
+  }
+
+  Future<void> _suggestRefineInner() async {
+    var refine = _refine;
+    if (refine == null) {
+      final config = await JailerConfig.load();
+      final traj = _trajectory;
+      final notes = _promptNotes;
+      final journal = _editJournal;
+      if (config == null || traj == null || notes == null || journal == null) {
+        return;
+      }
+      refine = RefinePipeline(
+        llm: OpenAiLlmClient(config: config.toLlmConfig()),
+        trajectory: traj,
+        journal: journal,
+        memory: memoryStore,
+        promptNotes: notes,
+        skills: skillDiscovery,
+      );
+      _refine = refine;
+    }
+    if (!mounted) return;
+    final proposals = await refine.suggest();
+    if (proposals.isEmpty || !mounted) return;
+    setState(() {
+      _messages.add(_ChatMessage.refine(refineProposals: proposals));
+    });
+  }
+
+  /// 接受全部自进化建议。
+  void _applyRefineProposals(_ChatMessage msg) {
+    final refine = _refine;
+    if (refine == null) return;
+    for (final p in msg.refineProposals) {
+      refine.apply(p);
+    }
+    final idx = _messages.indexOf(msg);
+    if (idx >= 0) {
+      setState(() {
+        _messages[idx] = _ChatMessage.refine(
+          refineProposals: msg.refineProposals,
+          refineApplied: true,
+        );
+      });
+    }
+  }
+
+  /// 忽略建议卡。
+  void _ignoreRefineProposals(_ChatMessage msg) {
+    final idx = _messages.indexOf(msg);
+    if (idx >= 0) {
+      setState(() {
+        _messages[idx] = _ChatMessage.refine(
+          refineProposals: msg.refineProposals,
+          refineIgnored: true,
+        );
+      });
     }
   }
 
@@ -750,6 +911,11 @@ class _ChatScreenState extends State<ChatScreen> {
           '文件（如课件、笔记、图片）。访问公共目录请用绝对路径，例如 '
           '`/sdcard/Download/文件名`。';
     }
+    // 自进化 prompt notes：注入可自改的补充提示（基础 workflow 提示不可变）。
+    final notesBlock = _promptNotes?.formatForSystemPrompt() ?? '';
+    if (notesBlock.isNotEmpty) {
+      prompt += notesBlock;
+    }
     return prompt;
   }
 
@@ -794,6 +960,12 @@ class _ChatScreenState extends State<ChatScreen> {
       final skillsRoot = '$dir/skills';
       Directory(skillsRoot).createSync(recursive: true);
       registerSkillTools(skillsRoot: skillsRoot);
+    } catch (_) {}
+    // 自进化（Continual Harness）：轨迹 / prompt notes / 编辑台账。
+    try {
+      _trajectory = TrajectoryStore(filePath: '$dir/refine/trajectory.jsonl');
+      _promptNotes = PromptNotesStore(filePath: '$dir/refine/prompt_notes.json');
+      _editJournal = EditJournal(filePath: '$dir/refine/edit_journal.json');
     } catch (_) {}
   }
 
@@ -1064,6 +1236,106 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// 自进化建议卡（Continual Harness /refine 的 UI）。
+  Widget _buildRefineCard(_ChatMessage m) {
+    if (m.refineIgnored) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border.all(color: Theme.of(context).dividerColor),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text('已忽略自进化建议',
+            style: Theme.of(context).textTheme.bodySmall),
+      );
+    }
+    if (m.refineApplied) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border.all(color: context.appPalette.primary, width: 1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('✅ 已应用 ${m.refineProposals.length} 条自进化建议',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: context.appPalette.primary,
+                    fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            for (final p in m.refineProposals)
+              Text('• ${p.displayLabel}: ${p.content}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
+          ],
+        ),
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: context.appPalette.primary, width: 1.2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome, color: context.appPalette.primary, size: 16),
+              const SizedBox(width: 6),
+              Text('自进化建议（${m.refineProposals.length} 条）',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final p in m.refineProposals) ...[
+            Text('• [${p.displayLabel}] ${p.content}',
+                style: Theme.of(context).textTheme.bodySmall),
+            if ((p.trigger ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 12, top: 1),
+                child: Text('适用：${p.trigger}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        fontSize: 11,
+                        color: Theme.of(context).colorScheme.outline)),
+              ),
+            const SizedBox(height: 4),
+          ],
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  onPressed: () => _applyRefineProposals(m),
+                  style: FilledButton.styleFrom(
+                      backgroundColor: context.appPalette.primary),
+                  child: const Text('全部接受'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => _ignoreRefineProposals(m),
+                  child: const Text('忽略'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessage(_ChatMessage m) {
     switch (m.role) {
       case 'user':
@@ -1098,6 +1370,8 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         );
+      case 'refine':
+        return _buildRefineCard(m);
       case 'discussion':
         if (m.discussionRunning) {
           final status = m.discussionPerspective != null
