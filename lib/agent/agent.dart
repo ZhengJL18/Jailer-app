@@ -196,8 +196,10 @@ class JailerAgent {
   /// - tool 消息必须与其声明的 assistant 连续相邻且按声明顺序出现，否则丢弃
   /// - 非 tool 消息打断未消费完的批次 → 该批次剩余声明从 assistant 上剔除
   ///   （有文本则保留为纯文本 assistant；无文本整条丢弃）
-  void sanitizeToolPairing(List<Map<String, dynamic>> messages) {
-    if (messages.length < 2) return;
+  List<Map<String, dynamic>> sanitizeToolPairing(
+    List<Map<String, dynamic>> messages,
+  ) {
+    if (messages.length < 2) return List.of(messages);
     final cleaned = <Map<String, dynamic>>[];
     var lastAssistantIdx = -1; // cleaned 中最近一个带未消费 tool_calls 的 assistant
     var openCalls = <String>[]; // 该批次尚未消费的 tool_call id（FIFO）
@@ -281,9 +283,10 @@ class JailerAgent {
     }
     // 列表末尾仍有未消费完的批次 → 清理。
     closeOpenBatch();
-    messages
-      ..clear()
-      ..addAll(cleaned);
+    // 返回新 list：原 list 可能是测试/调用处推断的更窄类型（如
+    // List<Map<String,String>>），原地 addAll(List<Map<String,dynamic>>)
+    // 会触发运行时 "not a subtype" TypeError。
+    return cleaned;
   }
 
   /// 把收集到的防死循环警告统一追加为 user 消息（内存 + 落库）。
@@ -322,7 +325,7 @@ class JailerAgent {
     if (memoryBlock.isNotEmpty) {
       effectiveSystem = '$effectiveSystem\n\n$memoryBlock';
     }
-    final messages = <Map<String, dynamic>>[
+    var messages = <Map<String, dynamic>>[
       {'role': 'system', 'content': effectiveSystem},
       ...?conversationHistory,
       {'role': 'user', 'content': userMessage},
@@ -459,7 +462,7 @@ class JailerAgent {
       // ── LLM 调用（带错误分类 + 重试） ──
       // 发送前清洗残缺消息对（覆盖历史恢复、压缩、中断等所有残留路径），
       // 防止严格后端 400 "insufficient tool messages following tool_calls"。
-      sanitizeToolPairing(messages);
+      messages = sanitizeToolPairing(messages);
       LlmTurnResult turn;
       const maxRetries = 3;
       var attempt = 0;

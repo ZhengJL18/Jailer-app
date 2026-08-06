@@ -324,13 +324,13 @@ void main() {
 
     test('assistant 声明 tool_calls 但无对应结果 → 残缺声明被清除（无文本整条丢弃）',
         () {
-      final messages = [
+      var messages = <Map<String, dynamic>>[
         {'role': 'user', 'content': 'hi'},
         assistantWithToolCalls([
           {'id': 'call_1', 'type': 'function', 'function': {'name': 'a'}},
         ]),
       ];
-      agent.sanitizeToolPairing(messages);
+      messages = agent.sanitizeToolPairing(messages);
       // 残缺的 assistant(tool_calls) 无文本 → 整条丢弃，只剩 user。
       expect(
         messages.map((m) => m['role']).toList(),
@@ -339,7 +339,7 @@ void main() {
     });
 
     test('assistant 声明 tool_calls 无结果但有文本 → 降级为纯文本 assistant', () {
-      final messages = [
+      var messages = <Map<String, dynamic>>[
         {'role': 'user', 'content': 'hi'},
         assistantWithToolCalls(
           [
@@ -348,7 +348,7 @@ void main() {
           content: 'I will call a tool',
         ),
       ];
-      agent.sanitizeToolPairing(messages);
+      messages = agent.sanitizeToolPairing(messages);
       final roles = messages.map((m) => m['role']).toList();
       expect(roles, ['user', 'assistant']);
       final kept = messages.last;
@@ -357,11 +357,11 @@ void main() {
     });
 
     test('孤儿 tool 消息（无前置 assistant 声明）→ 丢弃', () {
-      final messages = [
+      var messages = <Map<String, dynamic>>[
         {'role': 'user', 'content': 'hi'},
         {'role': 'tool', 'tool_call_id': 'call_orphan', 'content': 'result'},
       ];
-      agent.sanitizeToolPairing(messages);
+      messages = agent.sanitizeToolPairing(messages);
       expect(
         messages.map((m) => m['role']).toList(),
         ['user'],
@@ -369,14 +369,14 @@ void main() {
     });
 
     test('完整配对（assistant→tool）原样保留', () {
-      final messages = [
+      var messages = <Map<String, dynamic>>[
         {'role': 'user', 'content': 'hi'},
         assistantWithToolCalls([
           {'id': 'call_ok', 'type': 'function', 'function': {'name': 'a'}},
         ]),
         {'role': 'tool', 'tool_call_id': 'call_ok', 'content': 'result'},
       ];
-      agent.sanitizeToolPairing(messages);
+      messages = agent.sanitizeToolPairing(messages);
       expect(
         messages.map((m) => m['role']).toList(),
         ['user', 'assistant', 'tool'],
@@ -387,7 +387,7 @@ void main() {
     });
 
     test('多 tool_call 部分有结果 → 只保留有结果的声明', () {
-      final messages = [
+      var messages = <Map<String, dynamic>>[
         {'role': 'user', 'content': 'hi'},
         assistantWithToolCalls([
           {'id': 'call_a', 'type': 'function', 'function': {'name': 'a'}},
@@ -395,7 +395,7 @@ void main() {
         ]),
         {'role': 'tool', 'tool_call_id': 'call_a', 'content': 'result-a'},
       ];
-      agent.sanitizeToolPairing(messages);
+      messages = agent.sanitizeToolPairing(messages);
       final roles = messages.map((m) => m['role']).toList();
       expect(roles, ['user', 'assistant', 'tool']);
       // call_b 无结果 → 从声明中剔除，只留 call_a。
@@ -411,7 +411,7 @@ void main() {
       // "Messages with role 'tool' must be a response to a preceding message
       // with 'tool_calls'"。严格清洗必须把被 user 打断的剩余声明（call_b）
       // 从 assistant 剔除、并丢弃错位的 tool(call_b)。
-      final messages = [
+      var messages = <Map<String, dynamic>>[
         {'role': 'user', 'content': 'hi'},
         assistantWithToolCalls([
           {'id': 'call_a', 'type': 'function', 'function': {'name': 'a'}},
@@ -421,7 +421,7 @@ void main() {
         {'role': 'user', 'content': '⚠️ 工具 a 已连续失败 3 次'},
         {'role': 'tool', 'tool_call_id': 'call_b', 'content': 'result-b'},
       ];
-      agent.sanitizeToolPairing(messages);
+      messages = agent.sanitizeToolPairing(messages);
       final roles = messages.map((m) => m['role']).toList();
       expect(roles, ['user', 'assistant', 'tool', 'user']);
       final calls = (messages[1]['tool_calls'] as List)
@@ -432,14 +432,14 @@ void main() {
     });
 
     test('tool 结果先于声明出现（错位）→ 不靠"id 存在"放行', () {
-      final messages = [
+      var messages = <Map<String, dynamic>>[
         {'role': 'user', 'content': 'hi'},
         {'role': 'tool', 'tool_call_id': 'call_x', 'content': 'result'},
         assistantWithToolCalls([
           {'id': 'call_x', 'type': 'function', 'function': {'name': 'a'}},
         ]),
       ];
-      agent.sanitizeToolPairing(messages);
+      messages = agent.sanitizeToolPairing(messages);
       // 错位：tool 在前、声明在后 → 两者都不可用，无文本的声明整条丢弃。
       expect(
         messages.map((m) => m['role']).toList(),
