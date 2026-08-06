@@ -56,7 +56,8 @@ bool _schedulerStarted = false;
 /// 解析 schedule 为下一次触发延迟（毫秒）。返回 null 表示不支持。
 Duration? _parseSchedule(String schedule, {DateTime? now}) {
   final n = now ?? DateTime.now();
-  final s = schedule.trim().toLowerCase();
+  final raw = schedule.trim();
+  final s = raw.toLowerCase();
 
   // 纯数字 + 单位：30m / 2h / 45s
   final intervalRe = RegExp(r'^(?:every\s+)?(\d+)\s*(s|m|h|d)$');
@@ -88,8 +89,19 @@ Duration? _parseSchedule(String schedule, {DateTime? now}) {
     return delta;
   }
 
+  // ISO 一次性时间戳：'2026-08-07T09:00' / '2026-08-07 09:00:00' / 带时区偏移。
+  final iso = DateTime.tryParse(raw);
+  if (iso != null) {
+    var delta = iso.difference(n);
+    if (delta.isNegative) delta = Duration.zero; // 已过期 → 立即触发。
+    return delta;
+  }
+
   return null;
 }
+
+/// 是否为一次性任务（ISO 时间戳调度）。一次性任务触发后自动删除。
+bool _isOneShot(String schedule) => DateTime.tryParse(schedule.trim()) != null;
 
 int _parseField(String f, int min, int max, int current) {
   if (f == '*') return current;
@@ -122,26 +134,43 @@ void _scheduleJob(CronJob job) {
   final delay = _parseSchedule(job.schedule);
   if (delay == null) return;
   _timers[job.id] = Timer(delay, () async {
+    // 已触发：从活动集合移除（此后 _deleteJob 的 cancel 只作用于真正的 pending timer）。
+    _timers.remove(job.id);
     try {
       final fire = cronFireHandler;
       if (fire != null) {
         await fire(job);
       }
     } catch (_) {}
-    // 更新 last_run。
+    // 触发期间任务可能已被 agent/用户删除或禁用。以存储中的最新状态为准，
+    // 被删的任务绝不能被 _saveJob（upsert）重新写回——那是「删了又出现」的根源。
+    final current = await _findJob(job.id);
+    if (current == null) return; // 已删除 → 不复活、不重排。
     final updated = CronJob(
-      id: job.id,
-      schedule: job.schedule,
-      task: job.task,
-      enabled: job.enabled,
+      id: current.id,
+      schedule: current.schedule,
+      task: current.task,
+      enabled: current.enabled,
       lastRun: DateTime.now().toIso8601String(),
     );
-    await _saveJob(updated);
-    // 重新调度（周期任务继续）。
-    if (job.enabled) {
+    // 一次性任务（ISO 时间戳）触发后自动删除；周期任务记录 last_run 并继续调度。
+    if (_isOneShot(updated.schedule)) {
+      await _deleteJob(updated.id);
+      return;
+    }
+    if (updated.enabled) {
+      await _saveJob(updated);
       _scheduleJob(updated);
     }
   });
+}
+
+Future<CronJob?> _findJob(String id) async {
+  final jobs = await _loadJobs();
+  for (final j in jobs) {
+    if (j.id == id) return j;
+  }
+  return null;
 }
 
 Future<List<CronJob>> _loadJobs() async {
@@ -202,7 +231,8 @@ Future<String> _handleCronCreate(Map<String, dynamic> args, [Map<String, dynamic
   final job = CronJob(id: _newId(), schedule: schedule, task: task);
   await _saveJob(job);
   _scheduleJob(job);
-  return 'Cron job created (${job.id}): every "$schedule" → $task';
+  final when = _isOneShot(schedule) ? 'one-shot at' : 'every';
+  return 'Cron job created (${job.id}): $when "$schedule" → $task';
 }
 
 Future<String> _handleCronList([Map<String, dynamic>? args, Map<String, dynamic>? kwargs]) async {
@@ -231,7 +261,8 @@ const Map<String, dynamic> _cronCreateSchema = {
   'name': 'cron_create',
   'description':
       'Create a recurring or one-shot task. schedule formats: "30m" (every 30 min), '
-      '"every 2h", "0 9 * * *" (cron 5-field, local time), or ISO timestamp. '
+      '"every 2h", "0 9 * * *" (cron 5-field, local time), or ISO timestamp '
+      '(one-shot, auto-deleted after it fires). '
       'The task runs while the app is open and the result is delivered to chat.',
   'parameters': {
     'type': 'object',

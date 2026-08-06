@@ -679,7 +679,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     // 显示 cron 触发的提示。
     _addAssistant('⏰ [定时任务 ${job.id}] ${job.schedule}\n任务：${job.task}');
-    final result = await _runSubAgent(job.task, const ['file', 'web', 'git'], 0);
+    // 附带 cron 工具集：任务文本里若写了「做完删除本任务」，子代理才真正有权删。
+    final result =
+        await _runSubAgent(job.task, const ['file', 'web', 'git', 'cron'], 0);
     if (!mounted) return;
     _addAssistant('[定时任务完成]\n$result');
   }
