@@ -53,6 +53,16 @@ dependencies:
   app_installer_plus: ^1.2.0
   re_editor: ^0.10.0
 
+  # markdown_widget 渲染引擎（printnotes 同款，全局统一渲染）+ 扩展依赖
+  markdown_widget: ^2.3.2+8
+  flutter_highlight: ^0.7.0
+  highlight: ^0.7.0
+  scroll_to_index: ^3.0.1
+  url_launcher: ^6.3.0
+  visibility_detector: ^0.4.0+2
+  html: ^0.15.4
+  expandable: ^5.0.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

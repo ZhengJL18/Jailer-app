@@ -9,7 +9,9 @@ void main() {
         body: HermesMarkdown(data: r'勾股定理 $a^2 + b^2 = c^2$ 成立'),
       ),
     ));
-    await tester.pumpAndSettle();
+    // 引擎为静态渲染，pump 一帧断言不崩即可（pumpAndSettle 可能因引擎内部
+    // VisibilityDetector/TOC 计时器超时，故不用）。
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 
@@ -19,7 +21,7 @@ void main() {
         body: HermesMarkdown(data: r'公式：$$\int_0^1 x^2 dx$$'),
       ),
     ));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 
@@ -29,7 +31,7 @@ void main() {
         body: HermesMarkdown(data: '你好，这是普通回复。\n\n- 列表项一\n- 列表项二'),
       ),
     ));
-    await tester.pumpAndSettle();
+    await tester.pump();
     expect(tester.takeException(), isNull);
   });
 }

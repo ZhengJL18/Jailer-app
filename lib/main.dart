@@ -13,12 +13,14 @@ import 'agent/workflow.dart';
 import 'config/jailer_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
+import 'notes/notes_paths.dart';
 import 'refine/edit_journal.dart';
 import 'refine/prompt_notes_store.dart';
 import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/github_screen.dart';
+import 'screens/notes_library_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
@@ -779,8 +781,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _studyQuestionService = StudyQuestionService(
         llm: OpenAiLlmClient(config: config.toLlmConfig()),
         engine: engine,
-        subjectLibraryDir: '$dir/subject_library',
-        profilePath: '$dir/subject_library/0_profile.md',
+        subjectLibraryDir: subjectLibraryPath(dir),
+        profilePath: '${subjectLibraryPath(dir)}/0_profile.md',
         skillPath: '$dir/skills/question-design/SKILL.md',
         isCancelled: () => _activeAgent?.isCancelled ?? false,
       );
@@ -1160,7 +1162,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _studyEngine = engine;
     } catch (_) {}
     try {
-      Directory('$dir/subject_library').createSync(recursive: true);
+      Directory(notesRootPath(dir)).createSync(recursive: true);
+      Directory(subjectLibraryPath(dir)).createSync(recursive: true);
     } catch (_) {}
     // 自进化（Continual Harness）：轨迹 / prompt notes / 编辑台账。
     try {
@@ -1319,6 +1322,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
                   );
+                case 'notes':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const NotesLibraryScreen()),
+                  );
               }
             },
             itemBuilder: (_) => [
@@ -1383,6 +1390,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     Icon(Icons.code, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('代码'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'notes',
+                child: Row(
+                  children: [
+                    Icon(Icons.menu_book_outlined, size: 18, color: context.appPalette.textSecondary),
+                    SizedBox(width: 8),
+                    Text('笔记库'),
                   ],
                 ),
               ),
