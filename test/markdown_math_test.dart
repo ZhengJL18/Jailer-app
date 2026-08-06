@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jailer/widgets/markdown_math.dart';
 
-/// markdown_widget 引擎内部用 visibility_detector（TOC 用）会在 paint 时创建
-/// 500ms 一次性 Timer；测试结束时若仍 pending 会报 "Pending timers" 错。
-/// 这里 pump 一帧断言不崩后，再推进时钟让 Timer 触发结束。
+/// markdown_widget 引擎内部用 visibility_detector（TOC 用），paint 时持续创建
+/// 500ms Timer（全局单例，dispose 时才 cancel）。测试结束若 widget 仍在树中
+/// 会报 "Pending timers" 错。这里 pump 一帧断言不崩后，卸载 widget 树让
+/// VisibilityDetector dispose → cancel timer。
 Future<void> _pumpAndDrain(WidgetTester tester) async {
   await tester.pump();
-  await tester.pump(const Duration(seconds: 1));
+  await tester.pump(const Duration(milliseconds: 600));
+  addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
 }
 
 void main() {
