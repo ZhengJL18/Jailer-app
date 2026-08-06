@@ -237,6 +237,64 @@ void main() {
       expect(result.completed, isTrue);
       expect(result.finalResponse, 'ok done');
     });
+
+    test('防死循环：同一工具+同参数连续失败 9 次 → 自动中断', () async {
+      // 3 次失败 → 警告1；再 3 次 → 警告2；再 3 次 → 中断（阈值=3，警告上限=2）。
+      final failCall =
+          toolCallTurn('call_loop', 'read_file', '{"path":"/no/such/file"}');
+      final script = ScriptedLlmClient([
+        failCall, failCall, failCall, // 警告 1
+        failCall, failCall, failCall, // 警告 2
+        failCall, failCall, failCall, // 中断
+      ]);
+      final llm = OpenAiLlmClient(
+        config: const LlmConfig(
+          baseUrl: 'https://example.com/v1/chat/completions',
+          apiKey: 'test',
+          model: 'test-model',
+        ),
+        client: script,
+      );
+      final agent = JailerAgent(
+        llm: llm,
+        systemPrompt: 'You are Jailer.',
+      );
+      final result = await agent.runConversation('Loop on a broken tool');
+      expect(result.completed, isFalse);
+      expect(result.finalResponse, contains('已自动中止'));
+      expect(result.error, contains('tool_loop_detected'));
+      expect(script.callCount, 9); // 第 9 次执行后中断，未触发第 10 次调用。
+    });
+
+    test('防死循环：失败中穿插成功 → 计数器复位，不误杀', () async {
+      // fail, fail, success, fail×3 → 只注入一次警告，不中断。
+      final failCall =
+          toolCallTurn('call_loop', 'read_file', '{"path":"/no/such/file"}');
+      final okCall =
+          toolCallTurn('call_ok', 'write_file', '{"path":"ok.txt","content":"x"}');
+      final script = ScriptedLlmClient([
+        failCall, failCall,
+        okCall,
+        failCall, failCall, failCall,
+        textTurn('done'),
+      ]);
+      final llm = OpenAiLlmClient(
+        config: const LlmConfig(
+          baseUrl: 'https://example.com/v1/chat/completions',
+          apiKey: 'test',
+          model: 'test-model',
+        ),
+        client: script,
+      );
+      final agent = JailerAgent(
+        llm: llm,
+        systemPrompt: 'You are Jailer.',
+      );
+      final result = await agent.runConversation('Mix of failures and success');
+      expect(result.completed, isTrue);
+      expect(result.finalResponse, 'done');
+      expect(result.error, isNull);
+    });
   });
 
   group('IterationBudget', () {

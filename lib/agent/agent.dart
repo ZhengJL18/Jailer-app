@@ -67,6 +67,14 @@ class JailerAgent {
   bool _cancelled = false;
   bool get isCancelled => _cancelled;
 
+  /// 防死循环：同一工具+同参数连续失败达到 [_loopFailThreshold] 次时注入
+  /// 警告消息；注入 [_loopWarnLimit] 次后仍不收敛，直接中断本轮对话。
+  String? _loopFailSignature; // 当前正在连续失败的签名（工具名|归一化参数）。
+  int _loopFailCount = 0; // 同一签名连续失败次数。
+  int _loopWarnCount = 0; // 当前循环已注入的警告轮数。
+  static const int _loopFailThreshold = 3; // 同一签名连续失败 3 次 → 警告
+  static const int _loopWarnLimit = 2; // 已警告 2 轮仍失败 → 中断
+
   /// 请求取消当前对话。
   void cancel() => _cancelled = true;
 
@@ -100,6 +108,46 @@ class JailerAgent {
     this.sessionDb,
     this.sessionId,
   }) : iterationBudget = IterationBudget(maxIterations);
+
+  /// 判断工具执行结果是否为错误（dispatch 失败约定：JSON 含非空 "error" 键，
+  /// 部分 handler 也直接返回 {"error": ...}）。仅做字符串探测，不完整解析，
+  /// 避免误判成功工具结果里的 "error" 字面量。
+  bool _isToolErrorResult(String result) {
+    if (result.startsWith('[TOOL_ERROR]')) {
+      return true;
+    }
+    // 必须是 JSON 对象且顶层有 "error" 字段（值非 null/空）。
+    if (!result.trimLeft().startsWith('{')) {
+      return false;
+    }
+    try {
+      final decoded = jsonDecode(result);
+      if (decoded is Map<String, dynamic>) {
+        final err = decoded['error'];
+        return err is String && err.isNotEmpty;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// 归一化失败签名：工具名 + 排序后的参数键值对。LLM 重试同一调用时可能
+  /// 微调 JSON 的键顺序或空白，签名归一化后仍能命中循环检测。
+  String _toolFailSignature(String name, String arguments) {
+    final trimmed = arguments.trim();
+    if (trimmed.isEmpty) return name;
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map<String, dynamic>) {
+        final keys = decoded.keys.toList()..sort();
+        final buf = StringBuffer('$name|');
+        for (final k in keys) {
+          buf.write('$k=${jsonEncode(decoded[k])};');
+        }
+        return buf.toString();
+      }
+    } catch (_) {}
+    return '$name|$trimmed';
+  }
 
   /// 把分类后的 API 错误转成用户可读的中文提示。
   String _friendlyApiError(ClassifiedError classified, String raw) {
@@ -325,6 +373,58 @@ class JailerAgent {
               toolCallId: effectiveId,
               toolName: tc.name,
             );
+          }
+
+          // ── 防死循环：同一工具+同参数连续失败 → 警告，仍不收敛则中断 ──
+          // 放在 tool 结果回填之后注入 user 警告：保证消息流为
+          // assistant(tool_calls) → tool(result) → user(warn)，符合 OpenAI
+          // 格式（user 消息不允许插在 assistant 的 tool_calls 与其 tool 结果之间）。
+          final isToolError = _isToolErrorResult(result);
+          if (isToolError) {
+            final signature = _toolFailSignature(tc.name, tc.arguments);
+            if (_loopFailSignature != signature) {
+              // 换了失败点 → 重新计数（警告不跨失败模式累计）。
+              _loopFailSignature = signature;
+              _loopFailCount = 1;
+              _loopWarnCount = 0;
+            } else {
+              _loopFailCount++;
+            }
+            if (_loopFailCount >= _loopFailThreshold) {
+              _loopFailCount = 0; // 本轮已处理，重新计数（签名保持，继续追踪同循环）。
+              if (_loopWarnCount >= _loopWarnLimit) {
+                // 已警告过 _loopWarnLimit 轮仍失败 → 中断本轮对话。
+                final loopMsg = '工具 ${tc.name} 反复调用失败，已自动中止以防死循环。'
+                    '请检查参数或改用其他方式。';
+                if (sdb != null && sid != null) {
+                  await sdb.appendMessage(
+                    sid,
+                    role: 'assistant',
+                    content: loopMsg,
+                  );
+                }
+                return ConversationResult(
+                  finalResponse: loopMsg,
+                  messages: messages,
+                  apiCalls: apiCallCount,
+                  completed: false,
+                  error: 'tool_loop_detected: ${tc.name}',
+                );
+              }
+              _loopWarnCount++;
+              final warnMsg = '⚠️ 工具 ${tc.name} 已连续失败 $_loopFailThreshold 次'
+                  '（参数相同）。请停止重试该调用，先检查参数/路径是否合理，'
+                  '或改用其他工具/直接回答用户。';
+              messages.add({'role': 'user', 'content': warnMsg});
+              if (sdb != null && sid != null) {
+                await sdb.appendMessage(sid, role: 'user', content: warnMsg);
+              }
+            }
+          } else {
+            // 成功 → 清空失败签名与警告计数，避免历史失败影响后续。
+            _loopFailSignature = null;
+            _loopFailCount = 0;
+            _loopWarnCount = 0;
           }
         }
         continue; // 有工具调用 → 继续循环（模型看到工具结果再决定）
