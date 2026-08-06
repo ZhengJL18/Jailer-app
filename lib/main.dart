@@ -253,7 +253,13 @@ class _ChatScreenState extends State<ChatScreen> {
     registerVisionTool();
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
-    _initCwd();
+    final init = _initCwd();
+    // 会话库就绪后，把当前会话历史恢复进 UI（重启 App 不再空白丢上下文）。
+    init.then((_) {
+      if (mounted && _currentSessionId != null) {
+        _loadMessagesToUi(_currentSessionId!);
+      }
+    });
     // 自动更新检查（fire-and-forget，失败静默不打扰）。
     _checkUpdate();
   }
@@ -349,33 +355,42 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 从对话历史切回某个会话继续聊：切换 sessionId + 加载历史到 UI。
   Future<void> _resumeSession(String sessionId) async {
-    final sdb = _sessionDb;
-    if (sdb == null) return;
     if (!mounted) return;
     setState(() {
       _messages.clear();
       _toolRunningIdx.clear();
       _currentSessionId = sessionId;
     });
+    await _loadMessagesToUi(sessionId);
+  }
+
+  /// 从会话库把 [sessionId] 的历史加载进 UI（重启/切换会话复用）。
+  Future<void> _loadMessagesToUi(String sessionId) async {
+    final sdb = _sessionDb;
+    if (sdb == null) return;
+    if (!mounted) return;
     try {
       final stored = await sdb.getMessages(sessionId);
-      for (final m in stored) {
-        final role = m['role'] as String? ?? 'user';
-        final content = m['content'] as String?;
-        if (role == 'user' && content != null) {
-          _messages.add(_ChatMessage.user(content));
-        } else if (role == 'assistant' && content != null) {
-          _messages.add(_ChatMessage.assistant(content));
-        } else if (role == 'tool') {
-          _messages.add(_ChatMessage.tool(
-            m['tool_name'] as String? ?? '',
-            'done',
-          ));
+      if (!mounted) return;
+      setState(() {
+        _messages.clear();
+        _toolRunningIdx.clear();
+        for (final m in stored) {
+          final role = m['role'] as String? ?? 'user';
+          final content = m['content'] as String?;
+          if (role == 'user' && content != null) {
+            _messages.add(_ChatMessage.user(content));
+          } else if (role == 'assistant' && content != null) {
+            _messages.add(_ChatMessage.assistant(content));
+          } else if (role == 'tool') {
+            _messages.add(_ChatMessage.tool(
+              m['tool_name'] as String? ?? '',
+              'done',
+            ));
+          }
         }
-      }
+      });
     } catch (_) {}
-    if (!mounted) return;
-    setState(() {});
   }
 
   /// 新建会话：生成新 sessionId，清空当前对话。

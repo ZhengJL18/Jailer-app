@@ -215,7 +215,10 @@ List<dynamic> _statusEntries(Repository repo) {
     // 无提交：index 全部是新文件。
     return repo.index.toList();
   }
-  final headTree = Tree.lookup(repo: repo, oid: headOid);
+  // headOid 是 HEAD 指向的 **commit** oid；Tree.lookup 需要 **tree** oid，
+  // 直接传 commit oid 会让 libgit2 报 "requested type does not match the
+  // type in the ODB"。用 Commit.lookup 取 commit 的 tree。
+  final headTree = Commit.lookup(repo: repo, oid: headOid).tree;
   final idx = <String>{for (final e in repo.index) e.path};
   final headPaths = <String>[
     for (final e in headTree.entries) e.name,
