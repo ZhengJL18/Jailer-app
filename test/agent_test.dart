@@ -91,6 +91,60 @@ List<String> textTurn(String text) => [
       'data: [DONE]',
     ];
 
+/// 构造一个含多个并行 tool_calls 的 turn（各占一个 index，分 chunk 下发）。
+List<String> parallelToolCallTurn(List<(String, String, String)> calls) => [
+      for (final (i, c) in calls.indexed)
+        sse({
+          'choices': [
+            {
+              'delta': {
+                'tool_calls': [
+                  {
+                    'index': i,
+                    'id': c.$1,
+                    'function': {'name': c.$2, 'arguments': c.$3},
+                  },
+                ],
+              },
+              'finish_reason': null,
+            },
+          ],
+        }),
+      sse({
+        'choices': [
+          {
+            'delta': <String, dynamic>{},
+            'finish_reason': 'tool_calls',
+          },
+        ],
+      }),
+      'data: [DONE]',
+    ];
+
+/// 断言消息历史"成形"：每个 assistant(tool_calls) 后必须紧跟其全部 tool 结果
+/// （顺序一致、中间不能插 user/system），否则严格后端会 400。
+void expectWellFormedToolPairs(List<Map<String, dynamic>> messages) {
+  for (var i = 0; i < messages.length; i++) {
+    final m = messages[i];
+    if (m['role'] == 'assistant' && m['tool_calls'] is List) {
+      final calls = [
+        for (final c in m['tool_calls'] as List) (c as Map)['id'] as String,
+      ];
+      final following = messages.skip(i + 1).take(calls.length).toList();
+      expect(
+        [for (final x in following) x['role']],
+        List.filled(calls.length, 'tool'),
+        reason: 'assistant(tool_calls) 后必须紧跟其 tool 结果（中间不能插 user）',
+      );
+      expect(
+        [for (final x in following) x['tool_call_id']],
+        calls,
+        reason: 'tool 结果顺序必须与声明一致',
+      );
+    }
+  }
+}
+
 void main() {
   late Directory tmp;
 
@@ -403,6 +457,91 @@ void main() {
           .map((c) => (c as Map)['id'])
           .toList();
       expect(calls, ['call_a']);
+    });
+
+    test('并行 tool 结果间插入 user 警告（楔子）→ 修成合法序列', () {
+      // 旧逻辑只查 id"存在"：call_b 在声明里、也在某个 tool 消息里 → 全保留，
+      // 但 user 警告楔在 tool(call_a) 与 tool(call_b) 之间，严格后端会 400
+      // "Messages with role 'tool' must be a response to a preceding message
+      // with 'tool_calls'"。严格清洗必须把被 user 打断的剩余声明（call_b）
+      // 从 assistant 剔除、并丢弃错位的 tool(call_b)。
+      final messages = [
+        {'role': 'user', 'content': 'hi'},
+        assistantWithToolCalls([
+          {'id': 'call_a', 'type': 'function', 'function': {'name': 'a'}},
+          {'id': 'call_b', 'type': 'function', 'function': {'name': 'b'}},
+        ]),
+        {'role': 'tool', 'tool_call_id': 'call_a', 'content': 'result-a'},
+        {'role': 'user', 'content': '⚠️ 工具 a 已连续失败 3 次'},
+        {'role': 'tool', 'tool_call_id': 'call_b', 'content': 'result-b'},
+      ];
+      agent.sanitizeToolPairing(messages);
+      final roles = messages.map((m) => m['role']).toList();
+      expect(roles, ['user', 'assistant', 'tool', 'user']);
+      final calls = (messages[1]['tool_calls'] as List)
+          .map((c) => (c as Map)['id'])
+          .toList();
+      expect(calls, ['call_a']);
+      expect(messages[2]['tool_call_id'], 'call_a');
+    });
+
+    test('tool 结果先于声明出现（错位）→ 不靠"id 存在"放行', () {
+      final messages = [
+        {'role': 'user', 'content': 'hi'},
+        {'role': 'tool', 'tool_call_id': 'call_x', 'content': 'result'},
+        assistantWithToolCalls([
+          {'id': 'call_x', 'type': 'function', 'function': {'name': 'a'}},
+        ]),
+      ];
+      agent.sanitizeToolPairing(messages);
+      // 错位：tool 在前、声明在后 → 两者都不可用，无文本的声明整条丢弃。
+      expect(
+        messages.map((m) => m['role']).toList(),
+        ['user'],
+      );
+    });
+  });
+
+  group('防死循环警告注入位置', () {
+    test('并行工具批次内触发警告 → user 警告排在整批 tool 结果之后', () async {
+      File(p.join(tmp.path, 'a.txt')).writeAsStringSync('hello');
+      final failCall = toolCallTurn(
+          'call_fail', 'nonexistent_tool_xyz', '{"x":1}');
+      final script = ScriptedLlmClient([
+        failCall, failCall, // 连续失败 1、2 次
+        parallelToolCallTurn([
+          // 第 3 次失败在此批触发警告；read_file 成功保证批次内有两个 tool 结果。
+          ('call_3a', 'nonexistent_tool_xyz', '{"x":1}'),
+          ('call_3b', 'read_file', '{"path":"a.txt"}'),
+        ]),
+        textTurn('done'),
+      ]);
+      final llm = OpenAiLlmClient(
+        config: const LlmConfig(
+          baseUrl: 'https://example.com/v1/chat/completions',
+          apiKey: 'test',
+          model: 'test-model',
+        ),
+        client: script,
+      );
+      final agent = JailerAgent(llm: llm, systemPrompt: 'You are Jailer.');
+      final result = await agent.runConversation('hi');
+      expect(result.completed, isTrue);
+      expect(result.finalResponse, 'done');
+      // 关键断言：整个消息历史必须"成形"，没有任何 user 消息楔在
+      // assistant(tool_calls) 与其 tool 结果之间（否则严格后端 400）。
+      expectWellFormedToolPairs(result.messages);
+      // 警告确实注入，且位置在触发批次的全部 tool 结果之后。
+      final warnIdx = result.messages.indexWhere(
+          (m) => (m['content'] as String? ?? '').contains('已连续失败'));
+      expect(warnIdx, greaterThan(-1));
+      // 触发批次：assistant(tool_calls×2) → tool(call_3a) → tool(call_3b) → user(warn)
+      expect(result.messages[warnIdx - 1]['role'], 'tool');
+      expect(result.messages[warnIdx - 1]['tool_call_id'], 'call_3b');
+      expect(result.messages[warnIdx - 2]['role'], 'tool');
+      expect(result.messages[warnIdx - 2]['tool_call_id'], 'call_3a');
+      expect(result.messages[warnIdx - 3]['role'], 'assistant');
+      expect((result.messages[warnIdx - 3]['tool_calls'] as List).length, 2);
     });
   });
 

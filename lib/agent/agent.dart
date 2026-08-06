@@ -173,93 +173,132 @@ class JailerAgent {
     }
   }
 
-  /// 发送前最终防线：清洗 messages 中残缺的 assistant↔tool 消息对。
+  /// 发送前最终防线：清洗 messages 中残缺/错位的 assistant↔tool 消息对。
   ///
-  /// OpenAI 兼容后端严格要求：assistant 消息声明了 tool_calls 后，每个
-  /// tool_call_id 必须紧跟对应的 tool 结果消息，否则 400
-  /// "insufficient tool messages following tool_calls message"。残缺对可能
-  /// 来自历史遗留、上下文压缩修剪、中断/异常等任何路径，这里统一修复：
-  /// - 孤儿 tool 消息（无前置 assistant 声明）→ 删除
-  /// - assistant 声明了 tool_calls 但无对应结果 → 删除残缺声明
+  /// OpenAI 兼容后端严格要求：assistant 消息声明 tool_calls 后，每个
+  /// tool_call_id 必须紧跟对应的 tool 结果消息，且整批 tool 结果必须连续
+  /// （中间不能插 user/system/其他 assistant），否则 400：
+  /// - 孤儿 tool 消息（无前置 assistant 声明）→ "Messages with role 'tool'
+  ///   must be a response to a preceding message with 'tool_calls'"
+  /// - assistant 声明了 tool_calls 但无对应结果 → "insufficient tool
+  ///   messages following tool_calls message"
+  ///
+  /// 残缺/错位可能来自历史遗留、上下文压缩修剪、并行工具结果间插入的 user
+  /// 警告、中断/异常等任何路径。这里统一修复（**严格按顺序**清洗，不只看 id
+  /// 是否存在——只查"存在"会让"声明在结果之后"或"结果被 user 消息打断"的
+  /// 错位对漏网，同样被严格后端 400）：
+  /// - tool 消息必须与其声明的 assistant 连续相邻且按声明顺序出现，否则丢弃
+  /// - 非 tool 消息打断未消费完的批次 → 该批次剩余声明从 assistant 上剔除
   ///   （有文本则保留为纯文本 assistant；无文本整条丢弃）
   void sanitizeToolPairing(List<Map<String, dynamic>> messages) {
     if (messages.length < 2) return;
-    // 第一遍：收集所有 assistant 声明的 tool_call_id（declaredIds）与实际
-    // 存在的 tool 结果 id（answeredIds）。两个集合用途不同：
-    // - declaredIds 用于识别孤儿 tool 消息（无前置 assistant 声明 → 丢弃）
-    // - answeredIds 用于识别残缺 assistant 声明（无对应 tool 结果 → 剔除）
-    final declaredIds = <String>{};
-    final answeredIds = <String>{};
-    for (final m in messages) {
-      if (m['role'] == 'assistant' && m['tool_calls'] is List) {
-        for (final c in m['tool_calls'] as List) {
-          if (c is Map<String, dynamic>) {
-            final cid = c['id'];
-            if (cid is String && cid.isNotEmpty) declaredIds.add(cid);
-          }
-        }
-      } else if (m['role'] == 'tool') {
-        final tid = m['tool_call_id'];
-        if (tid is String && tid.isNotEmpty) answeredIds.add(tid);
-      }
-    }
-    if (answeredIds.isEmpty) {
-      // 无任何 tool 消息 → 清掉残留的 assistant tool_calls 声明
-      // （有文本降级为纯文本 assistant，无文本整条丢弃）。
-      for (var i = 0; i < messages.length; i++) {
-        final m = messages[i];
-        if (m['role'] == 'assistant' && m['tool_calls'] is List) {
-          final content = m['content'] as String? ?? '';
-          if (content.trim().isNotEmpty) {
-            messages[i] = {...m}..remove('tool_calls');
-          } else {
-            messages.removeAt(i);
-            i--;
-          }
-        }
-      }
-      return;
-    }
     final cleaned = <Map<String, dynamic>>[];
+    var lastAssistantIdx = -1; // cleaned 中最近一个带未消费 tool_calls 的 assistant
+    var openCalls = <String>[]; // 该批次尚未消费的 tool_call id（FIFO）
+
+    // 批次被打断（非 tool 消息插入 / 列表结束）：未消费的声明从 assistant
+    // 上剔除，避免留下"声明了却无结果"的残缺批次。
+    void closeOpenBatch() {
+      if (openCalls.isEmpty) return;
+      if (lastAssistantIdx >= 0 && lastAssistantIdx < cleaned.length) {
+        final m = cleaned[lastAssistantIdx];
+        final rawCalls = m['tool_calls'] as List;
+        final keep = <dynamic>[
+          for (final c in rawCalls)
+            if (c is Map<String, dynamic> &&
+                !openCalls.contains(c['id'] as String? ?? ''))
+              c,
+        ];
+        final content = m['content'] as String? ?? '';
+        if (keep.isEmpty && content.trim().isEmpty) {
+          cleaned.removeAt(lastAssistantIdx);
+        } else if (keep.isEmpty) {
+          cleaned[lastAssistantIdx] = {...m}..remove('tool_calls');
+        } else {
+          cleaned[lastAssistantIdx] = {...m, 'tool_calls': keep};
+        }
+      }
+      openCalls = <String>[];
+      lastAssistantIdx = -1;
+    }
+
     for (final m in messages) {
       final role = m['role'];
-      if (role == 'tool') {
-        final tid = m['tool_call_id'];
-        // 孤儿 tool 消息（id 空/无前置 assistant 声明）→ 丢弃。
-        // 用 declaredIds（assistant 声明的 id）判断：tool 结果必须对应
-        // 某个 assistant 声明，否则是孤立消息，严格后端同样会 400。
-        if (tid is String && tid.isNotEmpty && declaredIds.contains(tid)) {
-          cleaned.add(m);
-        }
-        continue;
-      }
       if (role == 'assistant' && m['tool_calls'] is List) {
+        // 新批次开始：若上一批次未消费完，先清理（防声明交错）。
+        closeOpenBatch();
         final rawCalls = m['tool_calls'] as List;
-        final validCalls = <dynamic>[];
+        final calls = <Map<String, dynamic>>[];
+        final seen = <String>{};
         for (final c in rawCalls) {
           if (c is! Map<String, dynamic>) continue;
           final cid = c['id'] as String? ?? '';
-          // 有对应 tool 结果的调用保留；残缺调用从声明中剔除。
-          if (cid.isNotEmpty && answeredIds.contains(cid)) {
-            validCalls.add(c);
+          if (cid.isNotEmpty && seen.add(cid)) {
+            calls.add(c);
           }
         }
-        if (validCalls.isNotEmpty) {
-          cleaned.add({...m, 'tool_calls': validCalls});
-        } else {
-          // 全部残缺：有文本则降级为纯文本 assistant，无文本整条丢弃。
-          final content = m['content'] as String? ?? '';
-          if (content.trim().isNotEmpty) {
-            cleaned.add({...m}..remove('tool_calls'));
+        final content = m['content'] as String? ?? '';
+        if (calls.isNotEmpty) {
+          // 声明完整（id 齐全且不重复）或带文本 → 保留；否则整条丢弃。
+          final declaredCount = rawCalls.whereType<Map<String, dynamic>>().length;
+          if (calls.length == declaredCount || content.trim().isNotEmpty) {
+            cleaned.add({...m, 'tool_calls': calls});
+            lastAssistantIdx = cleaned.length - 1;
+            openCalls = [for (final c in calls) c['id'] as String];
+          }
+          // else：声明残缺（空/重复 id）且无文本 → 整条丢弃。
+        } else if (content.trim().isNotEmpty) {
+          cleaned.add({...m}..remove('tool_calls'));
+        }
+        // else：无有效调用且无文本 → 整条丢弃。
+        continue;
+      }
+      if (role == 'tool') {
+        final tid = m['tool_call_id'];
+        // 严格校验：id 非空、批次开放、且与批次头部 id 一致（按声明顺序，
+        // 不得被其他消息打断）。孤儿/错位/重复的 tool 消息一律丢弃。
+        if (tid is String &&
+            tid.isNotEmpty &&
+            openCalls.isNotEmpty &&
+            openCalls.first == tid) {
+          cleaned.add(m);
+          openCalls.removeAt(0);
+          if (openCalls.isEmpty) {
+            lastAssistantIdx = -1;
           }
         }
         continue;
       }
+      // 非 tool 消息：打断开放批次 → 清理该批次未消费的声明。
+      closeOpenBatch();
       cleaned.add(m);
     }
+    // 列表末尾仍有未消费完的批次 → 清理。
+    closeOpenBatch();
     messages
       ..clear()
       ..addAll(cleaned);
+  }
+
+  /// 把收集到的防死循环警告统一追加为 user 消息（内存 + 落库）。
+  ///
+  /// 只在**整批工具结果回填完毕之后**调用，避免 user 消息插进同一批
+  /// assistant(tool_calls) 与其 tool 结果之间（严格后端会 400
+  /// "Messages with role 'tool' must be a response..."）。
+  Future<void> _flushUserWarns(
+    List<Map<String, dynamic>> messages,
+    List<String> warns,
+    SessionDB? sdb,
+    String? sid,
+  ) async {
+    if (warns.isEmpty) return;
+    for (final w in warns) {
+      messages.add({'role': 'user', 'content': w});
+      if (sdb != null && sid != null) {
+        await sdb.appendMessage(sid, role: 'user', content: w);
+      }
+    }
+    warns.clear();
   }
 
   /// 运行一次完整对话（带工具调用直到完成）。
@@ -520,6 +559,12 @@ class JailerAgent {
           }
           break;
         }
+        // 防死循环警告先收集，等本批所有 tool 结果回填完毕再统一注入：
+        // OpenAI 兼容后端要求 assistant(tool_calls) 的 tool 结果连续排列，
+        // 中间插 user 警告会把后续 tool 结果变成孤儿 → 400 "Messages with
+        // role 'tool' must be a response to a preceding message with
+        // 'tool_calls'"。
+        final pendingWarns = <String>[];
         for (var ti = 0; ti < turn.toolCalls.length; ti++) {
           final tc = turn.toolCalls[ti];
           Map<String, dynamic> args;
@@ -566,9 +611,10 @@ class JailerAgent {
           }
 
           // ── 防死循环：同一工具+同参数连续失败 → 警告，仍不收敛则中断 ──
-          // 放在 tool 结果回填之后注入 user 警告：保证消息流为
-          // assistant(tool_calls) → tool(result) → user(warn)，符合 OpenAI
-          // 格式（user 消息不允许插在 assistant 的 tool_calls 与其 tool 结果之间）。
+          // 警告先收进 pendingWarns，等本批所有 tool 结果回填后再统一注入：
+          // 保证消息流为 assistant(tool_calls) → tool(result)×N → user(warn)，
+          // 符合 OpenAI 格式（user 消息不允许插在 assistant 的 tool_calls
+          // 与其 tool 结果之间，并行调用时在循环内注入会把后续 tool 结果变孤儿）。
           final isToolError = _isToolErrorResult(result);
           if (isToolError) {
             final signature = _toolFailSignature(tc.name, tc.arguments);
@@ -583,7 +629,8 @@ class JailerAgent {
             if (_loopFailCount >= _loopFailThreshold) {
               _loopFailCount = 0; // 本轮已处理，重新计数（签名保持，继续追踪同循环）。
               if (_loopWarnCount >= _loopWarnLimit) {
-                // 已警告过 _loopWarnLimit 轮仍失败 → 中断本轮对话。
+                // 已警告过 _loopWarnLimit 轮仍失败 → 先落库待注入警告，再中断。
+                await _flushUserWarns(messages, pendingWarns, sdb, sid);
                 final loopMsg = '工具 ${tc.name} 反复调用失败，已自动中止以防死循环。'
                     '请检查参数或改用其他方式。';
                 if (sdb != null && sid != null) {
@@ -602,13 +649,9 @@ class JailerAgent {
                 );
               }
               _loopWarnCount++;
-              final warnMsg = '⚠️ 工具 ${tc.name} 已连续失败 $_loopFailThreshold 次'
+              pendingWarns.add('⚠️ 工具 ${tc.name} 已连续失败 $_loopFailThreshold 次'
                   '（参数相同）。请停止重试该调用，先检查参数/路径是否合理，'
-                  '或改用其他工具/直接回答用户。';
-              messages.add({'role': 'user', 'content': warnMsg});
-              if (sdb != null && sid != null) {
-                await sdb.appendMessage(sid, role: 'user', content: warnMsg);
-              }
+                  '或改用其他工具/直接回答用户。');
             }
           } else {
             // 成功 → 清空失败签名与警告计数，避免历史失败影响后续。
@@ -617,6 +660,8 @@ class JailerAgent {
             _loopWarnCount = 0;
           }
         }
+        // 本批所有工具结果已连续回填，统一注入防死循环警告（内存 + 落库）。
+        await _flushUserWarns(messages, pendingWarns, sdb, sid);
         continue; // 有工具调用 → 继续循环（模型看到工具结果再决定）
       }
 
