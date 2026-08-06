@@ -1463,7 +1463,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Map<String, dynamic>? _extractQuestionJson(String text) {
     // 匹配 ```json { ... } ``` 块。
     final m = RegExp(r'```json\s*(\{.*?\})\s*```', dotAll: true).firstMatch(text);
-    final candidate = m != null ? m.group(1) : text;
+    final candidate = (m != null ? m.group(1) : null) ?? text;
     final start = candidate.indexOf('{');
     final end = candidate.lastIndexOf('}');
     if (start < 0 || end <= start) return null;
@@ -1561,7 +1561,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     correct: correct,
                   ));
                 }
-                _persistHistory();
                 // 点选后触发 agent 讲解这题（合成 user turn，agent 在 study
                 // workflow 下流式讲解 + 提议下一题）。
                 _onStudyAnswer(qid, letter, answer, correct);
