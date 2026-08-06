@@ -173,6 +173,82 @@ class JailerAgent {
     }
   }
 
+  /// 发送前最终防线：清洗 messages 中残缺的 assistant↔tool 消息对。
+  ///
+  /// OpenAI 兼容后端严格要求：assistant 消息声明了 tool_calls 后，每个
+  /// tool_call_id 必须紧跟对应的 tool 结果消息，否则 400
+  /// "insufficient tool messages following tool_calls message"。残缺对可能
+  /// 来自历史遗留、上下文压缩修剪、中断/异常等任何路径，这里统一修复：
+  /// - 孤儿 tool 消息（无前置 assistant 声明）→ 删除
+  /// - assistant 声明了 tool_calls 但无对应结果 → 删除残缺声明
+  ///   （有文本则保留为纯文本 assistant；无文本整条丢弃）
+  void sanitizeToolPairing(List<Map<String, dynamic>> messages) {
+    if (messages.length < 2) return;
+    // 第一遍：收集所有 tool 结果的 tool_call_id。
+    final answeredIds = <String>{};
+    for (final m in messages) {
+      if (m['role'] == 'tool') {
+        final tid = m['tool_call_id'];
+        if (tid is String && tid.isNotEmpty) answeredIds.add(tid);
+      }
+    }
+    if (answeredIds.isEmpty) {
+      // 无任何 tool 消息 → 清掉残留的 assistant tool_calls 声明
+      // （有文本降级为纯文本 assistant，无文本整条丢弃）。
+      for (var i = 0; i < messages.length; i++) {
+        final m = messages[i];
+        if (m['role'] == 'assistant' && m['tool_calls'] is List) {
+          final content = m['content'] as String? ?? '';
+          if (content.trim().isNotEmpty) {
+            messages[i] = {...m}..remove('tool_calls');
+          } else {
+            messages.removeAt(i);
+            i--;
+          }
+        }
+      }
+      return;
+    }
+    final cleaned = <Map<String, dynamic>>[];
+    for (final m in messages) {
+      final role = m['role'];
+      if (role == 'tool') {
+        final tid = m['tool_call_id'];
+        if (tid is String && tid.isNotEmpty && answeredIds.contains(tid)) {
+          cleaned.add(m);
+        }
+        // 孤儿 tool 消息（id 空/找不到对应声明）→ 丢弃。
+        continue;
+      }
+      if (role == 'assistant' && m['tool_calls'] is List) {
+        final rawCalls = m['tool_calls'] as List;
+        final validCalls = <dynamic>[];
+        for (final c in rawCalls) {
+          if (c is! Map<String, dynamic>) continue;
+          final cid = c['id'] as String? ?? '';
+          // 有对应 tool 结果的调用保留；残缺调用从声明中剔除。
+          if (cid.isNotEmpty && answeredIds.contains(cid)) {
+            validCalls.add(c);
+          }
+        }
+        if (validCalls.isNotEmpty) {
+          cleaned.add({...m, 'tool_calls': validCalls});
+        } else {
+          // 全部残缺：有文本则降级为纯文本 assistant，无文本整条丢弃。
+          final content = m['content'] as String? ?? '';
+          if (content.trim().isNotEmpty) {
+            cleaned.add({...m}..remove('tool_calls'));
+          }
+        }
+        continue;
+      }
+      cleaned.add(m);
+    }
+    messages
+      ..clear()
+      ..addAll(cleaned);
+  }
+
   /// 运行一次完整对话（带工具调用直到完成）。
   ///
   /// [conversationHistory] 之前对话消息（可选）。
@@ -204,10 +280,38 @@ class JailerAgent {
       // OpenAI 消息格式再发给 LLM，否则严格后端会 400。
       final stored = await sdb.getMessages(sid);
       if (stored.isNotEmpty) {
+        // 第一遍：收集 DB 中所有 tool 结果消息的 tool_call_id，用于判断
+        // assistant 声明的 tool_calls 是否有对应结果。残缺对（assistant 声明
+        // 了 tool_calls 但无 tool 结果跟进）会导致 OpenAI 兼容后端 400
+        // "insufficient tool messages following tool_calls"。
+        final answeredIds = <String>{};
+        for (final m in stored) {
+          if (m['role'] == 'tool') {
+            final tid = m['tool_call_id'];
+            if (tid is String && tid.isNotEmpty) answeredIds.add(tid);
+          }
+        }
         final restored = <Map<String, dynamic>>[];
+        // 前面 assistant 声明、等待 tool 结果消费的 tool_call id。
+        final pendingIds = <String>{};
         for (final m in stored) {
           final role = m['role'] as String? ?? 'user';
           final rawContent = m['content'] as String? ?? '';
+          if (role == 'tool') {
+            final tid = m['tool_call_id'] as String? ?? '';
+            // 孤儿 tool 消息（前面没有 assistant(tool_calls) 声明）直接丢弃，
+            // 否则 OpenAI 兼容后端 400（tool 消息必须紧跟 assistant 声明）。
+            if (tid.isEmpty || !pendingIds.remove(tid)) {
+              continue;
+            }
+            restored.add({
+              'role': 'tool',
+              'tool_call_id': tid,
+              'name': m['tool_name'] ?? '',
+              'content': rawContent.isEmpty ? ' ' : rawContent,
+            });
+            continue;
+          }
           final msg = <String, dynamic>{
             'role': role,
             // assistant 消息 content 兜底空串（防 "content or tool_calls must
@@ -216,11 +320,42 @@ class JailerAgent {
                 ? ' '
                 : rawContent,
           };
-          if (role == 'tool') {
-            msg['tool_call_id'] = m['tool_call_id'] ?? '';
-            msg['name'] = m['tool_name'] ?? '';
-          } else if (role == 'assistant' && m['tool_calls'] is List) {
-            msg['tool_calls'] = m['tool_calls'];
+          if (role == 'assistant' && m['tool_calls'] is List) {
+            final rawCalls = m['tool_calls'] as List;
+            final validCalls = <Map<String, dynamic>>[];
+            final missingIds = <String>[];
+            for (final c in rawCalls) {
+              if (c is! Map<String, dynamic>) continue;
+              final cid = c['id'] as String? ?? '';
+              // 空 id 无法与 tool 结果可靠配对 → 视为残缺；非空且存在对应
+              // tool 结果 → 有效调用，登记进 pending 供后续 tool 消息消费。
+              if (cid.isNotEmpty && answeredIds.contains(cid)) {
+                validCalls.add(c);
+                pendingIds.add(cid);
+              } else {
+                missingIds.add(cid);
+              }
+            }
+            if (validCalls.isEmpty && rawContent.trim().isEmpty) {
+              // 全部残缺且无文本 → 整条丢弃，避免空 assistant 消息 400。
+              continue;
+            }
+            if (validCalls.isNotEmpty) {
+              msg['tool_calls'] = validCalls;
+            }
+            // 全部残缺但有文本 → 保留为纯文本 assistant（不带 tool_calls）。
+            restored.add(msg);
+            // 残缺调用补占位 tool 消息，紧跟其 assistant 声明之后
+            // （OpenAI 格式要求：assistant(tool_calls) 后必须紧跟 tool 结果）。
+            for (final cid in missingIds) {
+              restored.add({
+                'role': 'tool',
+                'tool_call_id': cid,
+                'name': '',
+                'content': '（工具调用中断，无结果）',
+              });
+            }
+            continue;
           }
           restored.add(msg);
         }
@@ -264,6 +399,9 @@ class JailerAgent {
           : getToolDefinitions(quietMode: true);
 
       // ── LLM 调用（带错误分类 + 重试） ──
+      // 发送前清洗残缺消息对（覆盖历史恢复、压缩、中断等所有残留路径），
+      // 防止严格后端 400 "insufficient tool messages following tool_calls"。
+      sanitizeToolPairing(messages);
       LlmTurnResult turn;
       const maxRetries = 3;
       var attempt = 0;
@@ -317,6 +455,15 @@ class JailerAgent {
         }
       }
 
+      // 部分后端不返回 tool_call id —— 先合成稳定 id，保证 assistant 消息里
+      // 的 tool_calls 与后续 tool 结果回填的 tool_call_id 一致（否则恢复历史
+      // 时配对不上，OpenAI 兼容后端会 400）。
+      for (var ti = 0; ti < turn.toolCalls.length; ti++) {
+        final tc = turn.toolCalls[ti];
+        if (tc.id.isEmpty) {
+          tc.id = 'call_${apiCallCount}_$ti';
+        }
+      }
       // 把 assistant turn 追加进消息历史。
       messages.add(turn.toAssistantMessage());
 
@@ -336,6 +483,28 @@ class JailerAgent {
       // ── 有 tool_calls → 执行并回填 ──
       if (turn.hasToolCalls) {
         if (_cancelled) {
+          // 用户中断：assistant(tool_calls) 已入列/落库，必须给每个 tool_call
+          // 补占位 tool 结果，否则留下残缺对 → 后续请求 400。
+          for (var ti = 0; ti < turn.toolCalls.length; ti++) {
+            final pTc = turn.toolCalls[ti];
+            final pId = pTc.id.isEmpty ? 'call_${apiCallCount}_$ti' : pTc.id;
+            const placeholder = '（用户中断，工具未执行）';
+            messages.add({
+              'role': 'tool',
+              'tool_call_id': pId,
+              'name': pTc.name,
+              'content': placeholder,
+            });
+            if (sdb != null && sid != null) {
+              await sdb.appendMessage(
+                sid,
+                role: 'tool',
+                content: placeholder,
+                toolCallId: pId,
+                toolName: pTc.name,
+              );
+            }
+          }
           break;
         }
         for (var ti = 0; ti < turn.toolCalls.length; ti++) {
@@ -351,7 +520,15 @@ class JailerAgent {
           }
 
           onToolEvent?.call(tc.name, 'running');
-          final result = await handleFunctionCall(tc.name, args);
+          String result;
+          try {
+            result = await handleFunctionCall(tc.name, args);
+          } catch (e, st) {
+            // 工具执行异常也必须回填 tool 结果，否则 assistant(tool_calls)
+            // 之后缺 tool 消息 → OpenAI 兼容后端 400。
+            result = jsonEncode({'error': 'tool execution failed: $e'});
+            debugPrint('[Agent] 工具 ${tc.name} 执行异常: $e\n$st');
+          }
           onToolEvent?.call(tc.name, 'done');
 
           // 工具 id 缺失时合成（部分后端不返回 id）。
