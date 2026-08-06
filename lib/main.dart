@@ -829,6 +829,15 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// 点选题卡后触发 agent 讲解（合成 user turn，不在输入框显示）。
+  void _onStudyAnswer(int qid, String letter, String answer, bool correct) {
+    if (_running) return;
+    final msg = '我刚答了题目#$qid，选了 $letter，'
+        '${correct ? "对了" : "正确答案是 $answer，我答错了"}。'
+        '请讲解这道题（为什么对、干扰项为什么错），然后提议下一题。';
+    unawaited(_runTaskWithFullTools(msg));
+  }
+
   Future<void> _suggestRefineInner() async {
     var refine = _refine;
     if (refine == null) {
@@ -1573,16 +1582,19 @@ class _ChatScreenState extends State<ChatScreen> {
           : () {
               if (qid is int) {
                 setState(() => _studyChoices[qid] = letter);
+                final correct = letter == answer;
                 // 机械判 + 落库练习记录（零 LLM）。
                 final engine = _studyEngine;
                 if (engine != null) {
-                  final correct = letter == answer;
                   unawaited(engine.recordAnswer(
                     questionId: qid,
                     correct: correct,
                   ));
                 }
                 _persistHistory();
+                // 点选后触发 agent 讲解这题（合成 user turn，agent 在 study
+                // workflow 下流式讲解 + 提议下一题）。
+                _onStudyAnswer(qid, letter, answer, correct);
               }
             },
       borderRadius: BorderRadius.circular(8),
