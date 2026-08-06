@@ -42,8 +42,7 @@ Future<void> linkHandler(BuildContext context, String url) async {
   final hasScheme = parsed != null && parsed.hasScheme;
 
   if (hasScheme) {
-    final target = parsed!;
-    await launchUrl(target);
+    await launchUrl(parsed);
     return;
   }
 

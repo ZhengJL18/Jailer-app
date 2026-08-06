@@ -23,19 +23,18 @@ enum NotesView { library, trash, archive }
 enum NotesSort { name, modified }
 
 class NotesController extends ChangeNotifier {
-  String? _rootPath;
+  String _rootPath = '';
   String _currentDir = '';
   List<FileSystemEntity> _items = [];
   NotesView _view = NotesView.library;
   NotesSort _sort = NotesSort.name;
   bool _searching = false;
   List<String> _searchResults = [];
-  String _lastQuery = '';
   // 多选状态。
   final Set<String> _selected = {};
   bool get selecting => _selected.isNotEmpty;
 
-  String get rootPath => _rootPath ?? '';
+  String get rootPath => _rootPath;
   String get currentDir => _currentDir;
   List<FileSystemEntity> get items => List.unmodifiable(_items);
   NotesView get view => _view;
@@ -105,7 +104,9 @@ class NotesController extends ChangeNotifier {
     try {
       return FileSystemEntity.typeSync(e.path) == FileSystemEntityType.file
           ? File(e.path).lastModifiedSync()
-          : Directory(e.path).lastModifiedSync();
+          : FileSystemEntity.typeSync(e.path) == FileSystemEntityType.directory
+              ? File(e.path).lastModifiedSync()
+              : DateTime.fromMillisecondsSinceEpoch(0);
     } catch (_) {
       return DateTime.fromMillisecondsSinceEpoch(0);
     }
@@ -114,7 +115,6 @@ class NotesController extends ChangeNotifier {
   void switchView(NotesView v) {
     _view = v;
     _selected.clear();
-    _lastQuery = '';
     _searchResults = [];
     if (v == NotesView.library && _currentDir != _rootPath) {
       // 从回收站/归档切回库视图时，回到库根目录。
@@ -235,7 +235,6 @@ class NotesController extends ChangeNotifier {
       return;
     }
     _searching = true;
-    _lastQuery = q;
     final results = await searchNotes(_rootPath, q);
     _searchResults = results;
     notifyListeners();

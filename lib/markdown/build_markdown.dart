@@ -3,6 +3,8 @@
 // 改为参数注入，由上层（HermesMarkdown）提供，贴合 hermes 全局单例 + ValueNotifier 模式。
 import 'package:flutter/material.dart';
 
+import 'package:markdown_widget/markdown_widget.dart';
+
 import 'package:flutter_highlight/theme_map.dart';
 import 'package:flutter_highlight/themes/a11y-light.dart';
 import 'package:flutter_highlight/themes/a11y-dark.dart';

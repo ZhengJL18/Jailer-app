@@ -28,7 +28,7 @@ class CustomImgBuilder extends StatelessWidget {
     // 相对笔记文件目录找图（url 以 ./ 开头或直接相对名）。
     File _relativeFile() {
       final base = p.dirname(fileUri.toFilePath());
-      final clean = url.startsWith('.$p.separator')
+      final clean = url.startsWith('.${p.separator}')
           ? url.substring(2)
           : url;
       return File(p.join(base, clean));
