@@ -184,10 +184,21 @@ class JailerAgent {
   ///   （有文本则保留为纯文本 assistant；无文本整条丢弃）
   void sanitizeToolPairing(List<Map<String, dynamic>> messages) {
     if (messages.length < 2) return;
-    // 第一遍：收集所有 tool 结果的 tool_call_id。
+    // 第一遍：收集所有 assistant 声明的 tool_call_id（declaredIds）与实际
+    // 存在的 tool 结果 id（answeredIds）。两个集合用途不同：
+    // - declaredIds 用于识别孤儿 tool 消息（无前置 assistant 声明 → 丢弃）
+    // - answeredIds 用于识别残缺 assistant 声明（无对应 tool 结果 → 剔除）
+    final declaredIds = <String>{};
     final answeredIds = <String>{};
     for (final m in messages) {
-      if (m['role'] == 'tool') {
+      if (m['role'] == 'assistant' && m['tool_calls'] is List) {
+        for (final c in m['tool_calls'] as List) {
+          if (c is Map<String, dynamic>) {
+            final cid = c['id'];
+            if (cid is String && cid.isNotEmpty) declaredIds.add(cid);
+          }
+        }
+      } else if (m['role'] == 'tool') {
         final tid = m['tool_call_id'];
         if (tid is String && tid.isNotEmpty) answeredIds.add(tid);
       }
@@ -214,10 +225,12 @@ class JailerAgent {
       final role = m['role'];
       if (role == 'tool') {
         final tid = m['tool_call_id'];
-        if (tid is String && tid.isNotEmpty && answeredIds.contains(tid)) {
+        // 孤儿 tool 消息（id 空/无前置 assistant 声明）→ 丢弃。
+        // 用 declaredIds（assistant 声明的 id）判断：tool 结果必须对应
+        // 某个 assistant 声明，否则是孤立消息，严格后端同样会 400。
+        if (tid is String && tid.isNotEmpty && declaredIds.contains(tid)) {
           cleaned.add(m);
         }
-        // 孤儿 tool 消息（id 空/找不到对应声明）→ 丢弃。
         continue;
       }
       if (role == 'assistant' && m['tool_calls'] is List) {

@@ -297,6 +297,115 @@ void main() {
     });
   });
 
+  group('sanitizeToolPairing（残缺 tool 配对清洗）', () {
+    late JailerAgent agent;
+
+    setUp(() {
+      final script = ScriptedLlmClient([]);
+      final llm = OpenAiLlmClient(
+        config: const LlmConfig(
+          baseUrl: 'https://example.com/v1/chat/completions',
+          apiKey: 'test',
+          model: 'test-model',
+        ),
+        client: script,
+      );
+      agent = JailerAgent(llm: llm, systemPrompt: 'You are Jailer.');
+    });
+
+    Map<String, dynamic> assistantWithToolCalls(List<Map<String, dynamic>> calls,
+        {String? content}) {
+      return {
+        'role': 'assistant',
+        if (content != null) 'content': content,
+        'tool_calls': calls,
+      };
+    }
+
+    test('assistant 声明 tool_calls 但无对应结果 → 残缺声明被清除（无文本整条丢弃）',
+        () {
+      final messages = [
+        {'role': 'user', 'content': 'hi'},
+        assistantWithToolCalls([
+          {'id': 'call_1', 'type': 'function', 'function': {'name': 'a'}},
+        ]),
+      ];
+      agent.sanitizeToolPairing(messages);
+      // 残缺的 assistant(tool_calls) 无文本 → 整条丢弃，只剩 user。
+      expect(
+        messages.map((m) => m['role']).toList(),
+        ['user'],
+      );
+    });
+
+    test('assistant 声明 tool_calls 无结果但有文本 → 降级为纯文本 assistant', () {
+      final messages = [
+        {'role': 'user', 'content': 'hi'},
+        assistantWithToolCalls(
+          [
+            {'id': 'call_1', 'type': 'function', 'function': {'name': 'a'}},
+          ],
+          content: 'I will call a tool',
+        ),
+      ];
+      agent.sanitizeToolPairing(messages);
+      final roles = messages.map((m) => m['role']).toList();
+      expect(roles, ['user', 'assistant']);
+      final kept = messages.last;
+      expect(kept['content'], 'I will call a tool');
+      expect(kept.containsKey('tool_calls'), isFalse); // 残缺声明已剔除。
+    });
+
+    test('孤儿 tool 消息（无前置 assistant 声明）→ 丢弃', () {
+      final messages = [
+        {'role': 'user', 'content': 'hi'},
+        {'role': 'tool', 'tool_call_id': 'call_orphan', 'content': 'result'},
+      ];
+      agent.sanitizeToolPairing(messages);
+      expect(
+        messages.map((m) => m['role']).toList(),
+        ['user'],
+      );
+    });
+
+    test('完整配对（assistant→tool）原样保留', () {
+      final messages = [
+        {'role': 'user', 'content': 'hi'},
+        assistantWithToolCalls([
+          {'id': 'call_ok', 'type': 'function', 'function': {'name': 'a'}},
+        ]),
+        {'role': 'tool', 'tool_call_id': 'call_ok', 'content': 'result'},
+      ];
+      agent.sanitizeToolPairing(messages);
+      expect(
+        messages.map((m) => m['role']).toList(),
+        ['user', 'assistant', 'tool'],
+      );
+      // 声明保留，tool 结果保留。
+      expect((messages[1]['tool_calls'] as List).length, 1);
+      expect(messages[2]['tool_call_id'], 'call_ok');
+    });
+
+    test('多 tool_call 部分有结果 → 只保留有结果的声明', () {
+      final messages = [
+        {'role': 'user', 'content': 'hi'},
+        assistantWithToolCalls([
+          {'id': 'call_a', 'type': 'function', 'function': {'name': 'a'}},
+          {'id': 'call_b', 'type': 'function', 'function': {'name': 'b'}},
+        ]),
+        {'role': 'tool', 'tool_call_id': 'call_a', 'content': 'result-a'},
+      ];
+      agent.sanitizeToolPairing(messages);
+      final roles = messages.map((m) => m['role']).toList();
+      expect(roles, ['user', 'assistant', 'tool']);
+      // call_b 无结果 → 从声明中剔除，只留 call_a。
+      final calls = (messages[1]['tool_calls'] as List)
+          .map((c) => (c as Map)['id'])
+          .toList();
+      expect(calls, ['call_a']);
+    });
+  });
+
   group('IterationBudget', () {
     test('consume/refund/remaining', () {
       final budget = IterationBudget(3);
