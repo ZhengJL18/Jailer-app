@@ -1,5 +1,6 @@
 // 笔记库状态：全局单例 ChangeNotifier（仿 themeController 模式，hermes 无 provider）。
 // 管理当前目录、文件列表、排序、多选、回收站/归档视图、搜索。
+// ensureInitialized() 必须先调用（确定 notes 根目录）再访问任何状态。
 library;
 
 import 'dart:io';
