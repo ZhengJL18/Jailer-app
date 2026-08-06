@@ -273,10 +273,12 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
 
     // ── Phase 6 终审（规则 + LLM） ──
     onProgress?.call(StudyStage.finalCheck, '终审');
+    // 非空局部变量：questionJson 是 var 且反复赋值，Dart 流分析无法收窄。
+    final current = questionJson ?? <String, dynamic>{};
     // 规则校验。
-    final options = (questionJson['options'] as List?)?.cast<String>() ?? [];
-    final answer = (questionJson['answer'] as String? ?? '').toUpperCase();
-    final q = questionJson['question'] as String? ?? '';
+    final options = (current['options'] as List?)?.cast<String>() ?? [];
+    final answer = (current['answer'] as String? ?? '').toUpperCase();
+    final q = current['question'] as String? ?? '';
     if (options.length != 4 ||
         !'ABCD'.contains(answer) ||
         q.trim().isEmpty) {
@@ -285,38 +287,39 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
     final finalText = await _llmOnce(
       '你是最终审核员。确认题目解析完整、讲解清晰、答案与选项匹配、无歧义。'
           '若通过返回 JSON {"pass":true}；否则返回 {"pass":false,"reasons":[...]}。',
-      '题目:\n${jsonEncode(questionJson)}',
+      '题目:\n${jsonEncode(current)}',
       maxTokens: 400,
     );
     final finalCheck = _extractJson(finalText);
     final finalPass = finalCheck?['pass'] == true;
+    var finalCurrent = current;
     if (!finalPass) {
       // 终审不过 → 最后精炼一次。
       onProgress?.call(StudyStage.refining, '终审不过，再精炼');
       final lastText = await _llmOnce(
         '你是出题老师，终审没通过，按原因最后修订。',
-        '原因: ${(finalCheck?['reasons'] as List?)?.join('; ')}\n\n题目:\n${jsonEncode(questionJson)}\n\n'
+        '原因: ${(finalCheck?['reasons'] as List?)?.join('; ')}\n\n题目:\n${jsonEncode(finalCurrent)}\n\n'
             '修订后严格输出 JSON。',
       );
       final lastJson = _extractJson(lastText);
-      if (lastJson != null) questionJson = lastJson;
+      if (lastJson != null) finalCurrent = lastJson;
     }
 
     // 落库。
     final finalOptions =
-        (questionJson['options'] as List?)?.cast<String>() ?? [];
-    final finalAnswer = (questionJson['answer'] as String? ?? '').toUpperCase();
+        (finalCurrent['options'] as List?)?.cast<String>() ?? [];
+    final finalAnswer = (finalCurrent['answer'] as String? ?? '').toUpperCase();
     if (finalOptions.length == 4 && 'ABCD'.contains(finalAnswer)) {
       final qid = await engine.insertQuestion(
         kpId: kpId,
-        content: questionJson['question'] as String? ?? '',
+        content: finalCurrent['question'] as String? ?? '',
         answer: finalAnswer,
         options: finalOptions,
-        explanation: questionJson['explanation'] as String? ?? '',
+        explanation: finalCurrent['explanation'] as String? ?? '',
       );
       onProgress?.call(StudyStage.done, '完成');
       return QuestionResult(
-          json: jsonEncode({...questionJson, 'question_id': qid}));
+          json: jsonEncode({...finalCurrent, 'question_id': qid}));
     }
     return QuestionResult(error: '终审失败：题目结构不合法');
   }
