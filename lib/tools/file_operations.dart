@@ -881,6 +881,38 @@ class LocalFileOperations implements FileOperations {
     return imageExtensions.contains(p.extension(path).toLowerCase());
   }
 
+  /// 读取用于二进制检测的样本（前 1000 字节）。
+  ///
+  /// 修复「读不了含中文的 dart 文件」：原实现在 1000 字节处硬截断，而
+  /// [RandomAccessFile.readSync] 可能把多字节 UTF-8 字符（中文等）拦腰截断，
+  /// `allowMalformed` 解码会在样本末尾产生孤立的 U+FFFD，被 [_isLikelyBinary]
+  /// 误判为二进制，导致含中文注释的合法文本文件被当作损坏文件拒绝读取
+  /// （ripgrep/git 均正常，仅 read_file 拒读 —— 典型如 lib/agent/agent.dart）。
+  /// 此处修正：若样本中唯一的 U+FFFD 恰在末尾、且文件比样本长（采样被截断），
+  /// 视为采样截断假象剥掉；内容中部的 U+FFFD 仍按二进制处理。
+  String _readBinarySample(File f, int fileSize) {
+    String sample;
+    var bytesLen = 0;
+    try {
+      final raf = f.openSync();
+      final bytes = raf.readSync(1000);
+      bytesLen = bytes.length;
+      raf.closeSync();
+      sample = utf8.decode(bytes, allowMalformed: true);
+    } catch (_) {
+      return '';
+    }
+    sample = _stripTerminalFenceLeaks(sample);
+    final firstFf = sample.indexOf('�');
+    if (firstFf >= 0 &&
+        firstFf == sample.lastIndexOf('�') &&
+        firstFf == sample.length - 1 &&
+        bytesLen < fileSize) {
+      sample = sample.substring(0, firstFf);
+    }
+    return sample;
+  }
+
   /// 按 ``LINE_NUM|CONTENT`` 格式给内容加行号。
   ///
   /// 沟槽用紧凑 ``<n>|`` 前缀而非定宽零/空格填充（``    34|foo``）。填充是纯
@@ -1040,17 +1072,8 @@ class LocalFileOperations implements FileOperations {
       );
     }
 
-    // 读样本检查二进制内容。
-    String sampleOutput;
-    try {
-      final raf = f.openSync();
-      final bytes = raf.readSync(1000);
-      raf.closeSync();
-      sampleOutput = utf8.decode(bytes, allowMalformed: true);
-    } catch (_) {
-      sampleOutput = '';
-    }
-    sampleOutput = _stripTerminalFenceLeaks(sampleOutput);
+    // 读样本检查二进制内容（_readBinarySample 剥掉 1000 字节截断的 U+FFFD 假象）。
+    final sampleOutput = _readBinarySample(f, fileSize);
 
     if (_isLikelyBinary(absPath, contentSample: sampleOutput)) {
       return ReadResult(
@@ -1065,6 +1088,13 @@ class LocalFileOperations implements FileOperations {
     String fullContent;
     try {
       fullContent = f.readAsStringSync();
+    } on FormatException {
+      // 严格 UTF-8 解码失败：内容确实含非法字节（真二进制/损坏），拒绝展示。
+      return ReadResult(
+        isBinary: true,
+        fileSize: fileSize,
+        error: 'Binary file - cannot display as text. Use appropriate tools to handle this file type.',
+      );
     } catch (e) {
       return ReadResult(error: 'Failed to read file: $e');
     }
@@ -1175,16 +1205,8 @@ class LocalFileOperations implements FileOperations {
     if (_isImage(absPath)) {
       return ReadResult(isImage: true, isBinary: true, fileSize: fileSize);
     }
-    String sampleOutput;
-    try {
-      final raf = f.openSync();
-      final bytes = raf.readSync(1000);
-      raf.closeSync();
-      sampleOutput = utf8.decode(bytes, allowMalformed: true);
-    } catch (_) {
-      sampleOutput = '';
-    }
-    sampleOutput = _stripTerminalFenceLeaks(sampleOutput);
+    // 读样本检查二进制内容（_readBinarySample 剥掉 1000 字节截断的 U+FFFD 假象）。
+    final sampleOutput = _readBinarySample(f, fileSize);
     if (_isLikelyBinary(absPath, contentSample: sampleOutput)) {
       return ReadResult(
         isBinary: true,
@@ -1195,6 +1217,13 @@ class LocalFileOperations implements FileOperations {
     String raw;
     try {
       raw = f.readAsStringSync();
+    } on FormatException {
+      // 严格 UTF-8 解码失败：内容确实含非法字节（真二进制/损坏），拒绝展示。
+      return ReadResult(
+        isBinary: true,
+        fileSize: fileSize,
+        error: 'Binary file — cannot display as text.',
+      );
     } catch (e) {
       return ReadResult(error: 'Failed to read file: $e');
     }
