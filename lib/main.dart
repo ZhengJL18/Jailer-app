@@ -102,6 +102,14 @@ class _ChatMessage {
   final List<RefineProposal> refineProposals;
   final bool refineApplied;
   final bool refineIgnored;
+  // study 专用：题目卡。
+  final int? studyQuestionId;
+  final String? studyQuestion;
+  final List<String> studyOptions;
+  final String? studyAnswer; // 正确答案（机械判用）。
+  final String? studyExplanation;
+  final String? studyUserChoice; // 用户选的选项。
+  final bool? studyCorrect; // 机械判结果。
 
   _ChatMessage.user(this.text)
       : role = 'user',
@@ -115,7 +123,14 @@ class _ChatMessage {
         discussionSummary = null,
         refineProposals = const [],
         refineApplied = false,
-        refineIgnored = false;
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyUserChoice = null,
+        studyCorrect = null;
   _ChatMessage.assistant(this.text)
       : role = 'assistant',
         toolName = null,
@@ -128,7 +143,14 @@ class _ChatMessage {
         discussionSummary = null,
         refineProposals = const [],
         refineApplied = false,
-        refineIgnored = false;
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyUserChoice = null,
+        studyCorrect = null;
   _ChatMessage.tool(this.toolName, this.toolStatus)
       : role = 'tool',
         text = null,
@@ -140,7 +162,14 @@ class _ChatMessage {
         discussionSummary = null,
         refineProposals = const [],
         refineApplied = false,
-        refineIgnored = false;
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyUserChoice = null,
+        studyCorrect = null;
   _ChatMessage.discussion({
     required this.discussionRunning,
     this.discussionRound,
@@ -154,7 +183,14 @@ class _ChatMessage {
         toolStatus = null,
         refineProposals = const [],
         refineApplied = false,
-        refineIgnored = false;
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyUserChoice = null,
+        studyCorrect = null;
   _ChatMessage.refine({
     required this.refineProposals,
     this.refineApplied = false,
@@ -168,9 +204,44 @@ class _ChatMessage {
         discussionTotalRounds = null,
         discussionPerspective = null,
         discussionPerspectives = const [],
-        discussionSummary = null;
+        discussionSummary = null,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyUserChoice = null,
+        studyCorrect = null;
   _ChatMessage.reasoning(this.text)
       : role = 'reasoning',
+        toolName = null,
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyUserChoice = null,
+        studyCorrect = null;
+  _ChatMessage.study({
+    required this.studyQuestionId,
+    required this.studyQuestion,
+    required this.studyOptions,
+    required this.studyAnswer,
+    required this.studyExplanation,
+    this.studyUserChoice,
+    this.studyCorrect,
+  })  : role = 'study',
+        text = null,
         toolName = null,
         toolStatus = null,
         discussionRunning = false,
@@ -219,6 +290,7 @@ class _ChatScreenState extends State<ChatScreen> {
   // 学习模式。
   StudyEngine? _studyEngine;
   StudyQuestionService? _studyQuestionService;
+  final Map<int, String> _studyChoices = {}; // question_id → 用户选项。
 
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
@@ -1407,6 +1479,134 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// 自进化建议卡（Continual Harness /refine 的 UI）。
+  /// 从 assistant 文本中提取题卡 JSON（agent 以 ```json 输出题目）。
+  /// 返回 null 表示非题目。
+  Map<String, dynamic>? _extractQuestionJson(String text) {
+    // 匹配 ```json { ... } ``` 块。
+    final m = RegExp(r'```json\s*(\{.*?\})\s*```', dotAll: true).firstMatch(text);
+    final candidate = m != null ? m.group(1) : text;
+    final start = candidate.indexOf('{');
+    final end = candidate.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+      final decoded = jsonDecode(candidate.substring(start, end + 1));
+      if (decoded is! Map<String, dynamic>) return null;
+      // 必须是题目结构（有 question + options）。
+      if (decoded['question'] is String &&
+          decoded['options'] is List &&
+          (decoded['options'] as List).length == 4) {
+        return decoded;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 渲染题目卡（选项按钮 + 机械判）。
+  Widget _buildStudyCard(Map<String, dynamic> q) {
+    final options = (q['options'] as List).cast<String>();
+    final answer = (q['answer'] as String? ?? '').toUpperCase();
+    final qid = q['question_id'];
+    // 检查是否已作答。
+    final answeredChoice = qid is int ? _studyChoices[qid] : null;
+    final answered = answeredChoice != null;
+    final isCorrect = answered && answeredChoice == answer;
+    final optLetters = ['A', 'B', 'C', 'D'];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(q['question'] as String? ?? '',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600)),
+          const SizedBox(height: 10),
+          for (var i = 0; i < options.length; i++) ...[
+            _buildOptionButton(
+                optLetters[i], options[i], answer, answered, answeredChoice, qid),
+            const SizedBox(height: 6),
+          ],
+          if (answered) ...[
+            const Divider(height: 12),
+            Text(
+              isCorrect ? '✅ 正确！' : '❌ 答错了，正确答案是 $answer',
+              style: TextStyle(
+                color: isCorrect
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.error,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(q['explanation'] as String? ?? '',
+                style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildOptionButton(
+      String letter, String option, String answer,
+      bool answered, String? userChoice, dynamic qid) {
+    final isAnswer = letter == answer;
+    final isChosen = letter == userChoice;
+    final Color bg;
+    if (!answered) {
+      bg = Theme.of(context).colorScheme.surfaceContainerHighest;
+    } else if (isAnswer) {
+      bg = Theme.of(context).colorScheme.primary.withValues(alpha: 0.15);
+    } else if (isChosen) {
+      bg = Theme.of(context).colorScheme.error.withValues(alpha: 0.15);
+    } else {
+      bg = Theme.of(context).colorScheme.surfaceContainerHighest;
+    }
+    return InkWell(
+      onTap: answered
+          ? null
+          : () {
+              if (qid is int) {
+                setState(() => _studyChoices[qid] = letter);
+                // 机械判 + 落库练习记录（零 LLM）。
+                final engine = _studyEngine;
+                if (engine != null) {
+                  final correct = letter == answer;
+                  unawaited(engine.recordAnswer(
+                    questionId: qid,
+                    correct: correct,
+                  ));
+                }
+                _persistHistory();
+              }
+            },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Text('$letter. ',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: isAnswer && answered
+                        ? Theme.of(context).colorScheme.primary
+                        : null)),
+            Expanded(child: Text(option)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRefineCard(_ChatMessage m) {
     if (m.refineIgnored) {
       return Container(
@@ -1555,6 +1755,11 @@ class _ChatScreenState extends State<ChatScreen> {
           ),
         );
       case 'assistant':
+        // 题目卡检测：agent 以 ```json 输出题目 → 渲染可点题卡。
+        final qJson = _extractQuestionJson(m.text ?? '');
+        if (qJson != null) {
+          return _buildStudyCard(qJson);
+        }
         return Align(
           alignment: Alignment.centerLeft,
           child: Container(
@@ -1573,6 +1778,14 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         );
+      case 'study':
+        return _buildStudyCard({
+          'question': m.studyQuestion,
+          'options': m.studyOptions,
+          'answer': m.studyAnswer,
+          'explanation': m.studyExplanation,
+          'question_id': m.studyQuestionId,
+        });
       case 'refine':
         return _buildRefineCard(m);
       case 'discussion':
