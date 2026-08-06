@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'agent/agent.dart';
 import 'agent/company.dart';
@@ -18,7 +17,6 @@ import 'refine/edit_journal.dart';
 import 'refine/prompt_notes_store.dart';
 import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
-import 'screens/code_editor_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
@@ -108,7 +106,6 @@ class _ChatMessage {
   final List<String> studyOptions;
   final String? studyAnswer; // 正确答案（机械判用）。
   final String? studyExplanation;
-  final String? studyUserChoice; // 用户选的选项。
   final bool? studyCorrect; // 机械判结果。
 
   _ChatMessage.user(this.text)
@@ -129,7 +126,6 @@ class _ChatMessage {
         studyOptions = const [],
         studyAnswer = null,
         studyExplanation = null,
-        studyUserChoice = null,
         studyCorrect = null;
   _ChatMessage.assistant(this.text)
       : role = 'assistant',
@@ -149,7 +145,6 @@ class _ChatMessage {
         studyOptions = const [],
         studyAnswer = null,
         studyExplanation = null,
-        studyUserChoice = null,
         studyCorrect = null;
   _ChatMessage.tool(this.toolName, this.toolStatus)
       : role = 'tool',
@@ -168,7 +163,6 @@ class _ChatMessage {
         studyOptions = const [],
         studyAnswer = null,
         studyExplanation = null,
-        studyUserChoice = null,
         studyCorrect = null;
   _ChatMessage.discussion({
     required this.discussionRunning,
@@ -189,7 +183,6 @@ class _ChatMessage {
         studyOptions = const [],
         studyAnswer = null,
         studyExplanation = null,
-        studyUserChoice = null,
         studyCorrect = null;
   _ChatMessage.refine({
     required this.refineProposals,
@@ -210,7 +203,6 @@ class _ChatMessage {
         studyOptions = const [],
         studyAnswer = null,
         studyExplanation = null,
-        studyUserChoice = null,
         studyCorrect = null;
   _ChatMessage.reasoning(this.text)
       : role = 'reasoning',
@@ -230,29 +222,7 @@ class _ChatMessage {
         studyOptions = const [],
         studyAnswer = null,
         studyExplanation = null,
-        studyUserChoice = null,
         studyCorrect = null;
-  _ChatMessage.study({
-    required this.studyQuestionId,
-    required this.studyQuestion,
-    required this.studyOptions,
-    required this.studyAnswer,
-    required this.studyExplanation,
-    this.studyUserChoice,
-    this.studyCorrect,
-  })  : role = 'study',
-        text = null,
-        toolName = null,
-        toolStatus = null,
-        discussionRunning = false,
-        discussionRound = null,
-        discussionTotalRounds = null,
-        discussionPerspective = null,
-        discussionPerspectives = const [],
-        discussionSummary = null,
-        refineProposals = const [],
-        refineApplied = false,
-        refineIgnored = false;
 }
 
 class ChatScreen extends StatefulWidget {
