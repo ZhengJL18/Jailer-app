@@ -1,0 +1,40 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import 'package:jailer/printnotes/providers/settings_provider.dart';
+import 'package:jailer/printnotes/utils/configs/data_path.dart';
+import 'package:jailer/printnotes/utils/storage_system.dart';
+import 'package:jailer/printnotes/ui/components/dialogs/select_location.dart';
+
+class ItemMoveHandler {
+  static Future<void> showMoveDialog(BuildContext context, List<Uri> itemUris,
+      {VoidCallback? onComplete}) async {
+    final String? baseDir = await DataPath.selectedDirectory;
+    if (baseDir == null) return;
+
+    if (context.mounted) {
+      final Uri? newLocationUri = await showDialog<Uri>(
+        context: context,
+        builder: (BuildContext context) {
+          return SelectLocationDialog(
+            baseDir: baseDir,
+            itemUris: itemUris,
+          );
+        },
+      );
+
+      if (newLocationUri != null) {
+        if (itemUris.length == 1) {
+          await StorageSystem.moveItem(itemUris.first, newLocationUri);
+        } else {
+          await StorageSystem.moveManyItems(itemUris, newLocationUri);
+        }
+        if (context.mounted) {
+          final readSettProv = context.read<SettingsProvider>();
+          readSettProv.loadItems(context, readSettProv.currentPath);
+        }
+        onComplete?.call();
+      }
+    }
+  }
+}

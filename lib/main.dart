@@ -5,6 +5,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
+
+import 'printnotes/app.dart';
+import 'printnotes/providers/customization_provider.dart'
+    as printnotes;
+import 'printnotes/providers/editor_config_provider.dart'
+    as printnotes;
+import 'printnotes/providers/navigation_provider.dart' as printnotes;
+import 'printnotes/providers/selecting_provider.dart' as printnotes;
+import 'printnotes/providers/settings_provider.dart' as printnotes;
+import 'printnotes/providers/theme_provider.dart' as printnotes;
+import 'printnotes/ui/screens/home/main_screen.dart' as printnotes;
 
 import 'agent/agent.dart';
 import 'agent/company.dart';
@@ -20,7 +32,6 @@ import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/github_screen.dart';
-import 'screens/notes_library_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
@@ -51,9 +62,13 @@ import 'widgets/markdown_math.dart';
 /// 全局主题控制器（设置页/切换入口共用）。
 ThemeController themeController = ThemeController();
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   themeController.load();
+  // printnotes 子系统需要 SharedPreferences 全局（App.localStorage）。
+  try {
+    await App.init();
+  } catch (_) {}
   runApp(const JailerApp());
 }
 
@@ -66,21 +81,36 @@ class JailerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 监听主题 + 明暗，任一变化 → 整树 rebuild（ThemeExtension 全量替换）。
-    return ValueListenableBuilder(
-      valueListenable: themeController.themeNotifier,
-      builder: (context, theme, child) {
-        return ValueListenableBuilder(
-          valueListenable: themeController.brightnessNotifier,
-          builder: (context, brightness, child) {
-            return MaterialApp(
-              title: 'Hermes',
-              theme: themeController.themeData,
-              home: const ChatScreen(),
-            );
-          },
-        );
-      },
+    // printnotes 子系统用 provider 管理状态（主题/设置/导航/编辑器配置等）。
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => printnotes.ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => printnotes.SettingsProvider()),
+        ChangeNotifierProvider(
+            create: (_) => printnotes.NavigationProvider()),
+        ChangeNotifierProvider(
+            create: (_) => printnotes.EditorConfigProvider()),
+        ChangeNotifierProvider(
+            create: (_) => printnotes.SelectingProvider()),
+        ChangeNotifierProvider(
+            create: (_) => printnotes.CustomizationProvider()),
+      ],
+      // 监听主题 + 明暗，任一变化 → 整树 rebuild（ThemeExtension 全量替换）。
+      child: ValueListenableBuilder(
+        valueListenable: themeController.themeNotifier,
+        builder: (context, theme, child) {
+          return ValueListenableBuilder(
+            valueListenable: themeController.brightnessNotifier,
+            builder: (context, brightness, child) {
+              return MaterialApp(
+                title: 'Hermes',
+                theme: themeController.themeData,
+                home: const ChatScreen(),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
@@ -1324,7 +1354,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
                 case 'notes':
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const NotesLibraryScreen()),
+                    MaterialPageRoute(builder: (_) => const printnotes.MainPage()),
                   );
               }
             },

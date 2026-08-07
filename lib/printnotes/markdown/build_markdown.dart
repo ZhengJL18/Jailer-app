@@ -1,0 +1,231 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:jailer/printnotes/markdown/rendering/strikethrough.dart';
+import 'package:jailer/printnotes/markdown/rendering/subscript.dart';
+import 'package:jailer/printnotes/markdown/rendering/superscript.dart';
+import 'package:provider/provider.dart';
+import './markdown_widget/markdown_widget.dart';
+import 'package:scroll_to_index/scroll_to_index.dart';
+
+import 'package:jailer/printnotes/providers/theme_provider.dart';
+import 'package:jailer/printnotes/providers/settings_provider.dart';
+import 'package:jailer/printnotes/providers/editor_config_provider.dart';
+
+import 'package:flutter_highlight/theme_map.dart';
+import 'package:flutter_highlight/themes/a11y-light.dart';
+import 'package:flutter_highlight/themes/a11y-dark.dart';
+
+import 'package:jailer/printnotes/markdown/rendering/code_wrapper.dart';
+import 'package:jailer/printnotes/markdown/rendering/custom_img_builder.dart';
+import 'package:jailer/printnotes/markdown/rendering/custom_node.dart';
+import 'package:jailer/printnotes/markdown/rendering/latex.dart';
+import 'package:jailer/printnotes/markdown/rendering/wiki_link.dart';
+import 'package:jailer/printnotes/markdown/rendering/highlighter.dart';
+import 'package:jailer/printnotes/markdown/rendering/underline.dart';
+import 'package:jailer/printnotes/markdown/rendering/note_tags.dart';
+
+import 'package:jailer/printnotes/markdown/link_handler.dart';
+
+MarkdownConfig theMarkdownConfigs(
+  BuildContext context, {
+  required Uri fileUri,
+  bool? hideCodeButtons,
+  bool inEditor = false,
+  Color? textColor,
+  TextEditingController? editingController,
+  Future<void> Function()? onCheckboxToggle,
+}) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  final config =
+      isDark ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig;
+
+  final userCodeHighlight = context.watch<ThemeProvider>().codeHighlight;
+
+  codeWrapper(child, text, language) => CodeWrapperWidget(child, text, language,
+      hideCodeButtons: hideCodeButtons);
+
+  double editorFontSize = context.watch<EditorConfigProvider>().fontSize;
+
+  return config.copy(configs: [
+    PConfig(
+      textStyle: TextStyle(
+        fontSize: inEditor ? editorFontSize : 16,
+        color: textColor,
+      ),
+    ),
+    H1Config(
+      style: TextStyle(
+        fontSize: inEditor ? editorFontSize + 16 : 32,
+        color: textColor,
+      ),
+    ),
+    H2Config(
+      style: TextStyle(
+        fontSize: inEditor ? editorFontSize + 8 : 24,
+        color: textColor,
+      ),
+    ),
+    H3Config(
+      style: TextStyle(
+        fontSize: inEditor ? editorFontSize + 4 : 20,
+        color: textColor,
+      ),
+    ),
+    H4Config(
+      style: TextStyle(
+        fontSize: inEditor ? editorFontSize : 16,
+        color: textColor,
+      ),
+    ),
+    H5Config(
+      style: TextStyle(
+        fontSize: inEditor ? editorFontSize : 16,
+        color: textColor,
+      ),
+    ),
+    H6Config(
+      style: TextStyle(
+        fontSize: inEditor ? editorFontSize : 16,
+        color: textColor,
+      ),
+    ),
+    ListConfig(marginLeft: editorFontSize * 1.5),
+    CheckBoxConfig(
+      size: inEditor ? editorFontSize * 1.25 : null,
+      onToggle: (event) {
+        final lineIdx = event.line;
+        if (editingController == null || lineIdx == null) return;
+        final lines = editingController.text.split('\n');
+        if (lineIdx < 0 || lineIdx >= lines.length) return;
+        final line = lines[lineIdx];
+        final taskRegex = RegExp(r'^(\s*[-\*\+]\s*)\[[ xX]\]\s*(.*)');
+        final m = taskRegex.firstMatch(line);
+        if (m != null) {
+          final prefix = m.group(1) ?? '';
+          final rest = m.group(2) ?? '';
+          final newMark = event.checked ? '[x]' : '[ ]';
+          lines[lineIdx] = '$prefix$newMark $rest';
+          editingController.text = lines.join('\n');
+
+          // call save callback if provided
+          if (onCheckboxToggle != null) {
+            unawaited(onCheckboxToggle());
+          }
+        }
+      },
+    ),
+    TableConfig(
+      wrapper: (table) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: table,
+      ),
+    ),
+    HrConfig(
+      height: 2,
+      color: textColor ??
+          Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2),
+    ),
+    BlockquoteConfig(
+      textColor: textColor ??
+          Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
+      sideColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+    ),
+    ImgConfig(
+      builder: (url, attributes) => CustomImgBuilder(url, fileUri, attributes),
+    ),
+    LinkConfig(onTap: (url) => linkHandler(context, url)),
+    WikiLinkConfig(onTap: (url) => linkHandler(context, url)),
+    const PreConfig().copy(
+      theme: themeMap[userCodeHighlight] ??
+          (isDark ? a11yDarkTheme : a11yLightTheme),
+      decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+          border: Border.all(
+              width: 1,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withValues(alpha: 0.2))),
+      wrapper: codeWrapper,
+      textStyle: TextStyle(fontSize: inEditor ? editorFontSize : null),
+      styleNotMatched: TextStyle(fontSize: inEditor ? editorFontSize : null),
+    ),
+  ]);
+}
+
+MarkdownGenerator theMarkdownGenerators(BuildContext context,
+    {double? textScale}) {
+  // Not an elegant way to customize, but it works
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  SpanNodeGeneratorWithTag noteTagGenerator = SpanNodeGeneratorWithTag(
+      tag: 'noteTag',
+      generator: (e, config, visitor) => NoteTagNode(
+            e.attributes,
+            config,
+            tagBackgroundColor:
+                Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+            tagTextColor: isDark
+                ? Theme.of(context).colorScheme.secondary
+                : Theme.of(context).colorScheme.primary,
+          ));
+
+  return MarkdownGenerator(
+    generators: [
+      if (context.watch<SettingsProvider>().useLatex) latexGenerator,
+      noteTagGenerator,
+      highlighterGeneratorWithTag,
+      underlineGeneratorWithTag,
+      strikethroughGeneratorWithTag,
+      superscriptGeneratorWithTag,
+      subscriptGeneratorWithTag,
+    ],
+    inlineSyntaxList: [
+      if (context.watch<SettingsProvider>().useLatex) LatexSyntax(),
+      NoteTagSyntax(),
+      WikiLinkSyntax(),
+      HighlighterSyntax(),
+      UnderlineSyntax(),
+      StrikethroughSyntax(),
+      SuperscriptSyntax(),
+      SubscriptSyntax(),
+    ],
+    textGenerator: (node, config, visitor) =>
+        CustomTextNode(node.textContent, config, visitor),
+    richTextBuilder: (span) => Text.rich(
+      span,
+      textScaler: TextScaler.linear(textScale ?? 1),
+    ),
+  );
+}
+
+Widget buildMarkdownWidget(
+  BuildContext context, {
+  required String data,
+  required Uri fileUri,
+  AutoScrollController? controller,
+  TocController? tocController,
+  ScrollPhysics? physics,
+  bool shrinkWrap = false,
+  bool? selectable,
+  TextEditingController? editingController,
+  Future<void> Function()? onCheckboxToggle,
+}) {
+  return MarkdownWidget(
+    data: data,
+    controller: controller,
+    tocController: tocController,
+    physics: physics,
+    shrinkWrap: shrinkWrap,
+    selectable: selectable ?? true,
+    config: theMarkdownConfigs(
+      context,
+      fileUri: fileUri,
+      inEditor: true,
+      editingController: editingController,
+      onCheckboxToggle: onCheckboxToggle,
+    ),
+    markdownGenerator: theMarkdownGenerators(context),
+  );
+}
