@@ -53,9 +53,9 @@ Future<String> _handleNotesList(Map<String, dynamic> args,
     if (!await _isWithinRoot(dir)) {
       return toolError('notes_list: 路径超出笔记库根目录');
     }
-    final entries = Directory(dir).list(recursive: recursive).toList();
+    final entries = await Directory(dir).list(recursive: recursive).toList();
     final lines = <String>[];
-    await for (final e in entries) {
+    for (final e in entries) {
       final rel = p.relative(e.path, from: await _notesRoot());
       if (e is Directory) {
         lines.add('[目录] $rel/');
