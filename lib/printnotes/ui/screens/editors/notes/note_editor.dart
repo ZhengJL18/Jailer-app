@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:share_plus/share_plus.dart';
-import 'package:keyboard_attachable/keyboard_attachable.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 import 'package:jailer/printnotes/markdown/markdown_widget/config/toc.dart';
 
@@ -419,39 +418,30 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           borderRadius:
               isScreenLarge(context) ? BorderRadius.circular(10) : null,
         ),
-        // Wrap child to add Toolbar at the bottom of the screen or on top
-        // of the keyboard
-        child: FooterLayout(
-          footer: _isEditingFile
-              ? MarkdownToolbar(
-                  controller: _notesController,
-                  onValueChange: (value) => _setUpAutoSave(),
-                  onPreviewChanged: _toggleMode,
-                  undoController: _undoHistoryController,
-                  toolbarBackground:
-                      Theme.of(context).colorScheme.surfaceContainer,
-                  expandableBackground: Theme.of(context).colorScheme.surface,
-                  userToolbarItemList:
-                      context.watch<EditorConfigProvider>().toolbarItemList,
-                )
-              : null,
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _isError
-                  ? const Center(
-                      child:
-                          Text('Error reading file, try reopening file again'))
-                  // Catch if "ctrl+shift+v" was used to switch between
-                  // edit and preview mode
-                  : Shortcuts(
-                      shortcuts: <ShortcutActivator, Intent>{
-                        LogicalKeySet(
-                            LogicalKeyboardKey.control,
-                            LogicalKeyboardKey.shift,
-                            LogicalKeyboardKey.keyV): const SwitchModeIntent(),
-                      },
-                      child: Actions(
-                        actions: <Type, Action<Intent>>{
+        // Wrap child to add Toolbar at the bottom（原 FooterLayout 跟随键盘，
+        // 依赖 keyboard_attachable/flutter_keyboard_visibility 与 AGP 9 不兼容，
+        // 改为普通 Column，工具栏固定底部）。
+        child: Column(
+          children: [
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _isError
+                      ? const Center(
+                          child: Text(
+                              'Error reading file, try reopening file again'))
+                      // Catch if "ctrl+shift+v" was used to switch between
+                      // edit and preview mode
+                      : Shortcuts(
+                          shortcuts: <ShortcutActivator, Intent>{
+                            LogicalKeySet(
+                                LogicalKeyboardKey.control,
+                                LogicalKeyboardKey.shift,
+                                LogicalKeyboardKey.keyV):
+                                const SwitchModeIntent(),
+                          },
+                          child: Actions(
+                            actions: <Type, Action<Intent>>{
                           SwitchModeIntent: CallbackAction<SwitchModeIntent>(
                               onInvoke: (SwitchModeIntent intent) =>
                                   _toggleMode()),
@@ -502,9 +492,23 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                                           ),
                                   ),
                           ),
-                        ),
-                      ),
-                    ),
+                                  ),
+                            ),
+                          ),
+            ),
+            if (_isEditingFile)
+              MarkdownToolbar(
+                controller: _notesController,
+                onValueChange: (value) => _setUpAutoSave(),
+                onPreviewChanged: _toggleMode,
+                undoController: _undoHistoryController,
+                toolbarBackground:
+                    Theme.of(context).colorScheme.surfaceContainer,
+                expandableBackground: Theme.of(context).colorScheme.surface,
+                userToolbarItemList:
+                    context.watch<EditorConfigProvider>().toolbarItemList,
+              ),
+          ],
         ),
       ),
     );
