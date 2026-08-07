@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -51,6 +52,7 @@ import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
+import 'tools/notes_tools.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
 import 'tools/study_tools.dart';
@@ -355,6 +357,7 @@ class _ChatScreenState extends State<ChatScreen> {
     startCronScheduler();
     registerVisionTool();
     registerStudyTools();
+    registerNotesTools();
     studyListHandler = _studyList;
     studyQuestionHandler = _studyQuestion;
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
@@ -1194,6 +1197,16 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       Directory(notesRootPath(dir)).createSync(recursive: true);
       Directory(subjectLibraryPath(dir)).createSync(recursive: true);
+      // 旧路径迁移：之前版本 subject_library 在 documents/subject_library，
+      // 现在移入 documents/notes/subject_library（笔记库可见）。检测旧目录
+      // 存在且非空时迁移过去，避免学习数据丢失。
+      final legacyLib = Directory('$dir/subject_library');
+      final newLib = Directory(subjectLibraryPath(dir));
+      if (await legacyLib.exists() && newLib.listSync().isEmpty) {
+        await for (final e in legacyLib.list()) {
+          await e.rename(p.join(newLib.path, p.basename(e.path)));
+        }
+      }
     } catch (_) {}
     // 自进化（Continual Harness）：轨迹 / prompt notes / 编辑台账。
     try {

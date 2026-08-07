@@ -79,7 +79,7 @@ const List<AgentWorkflow> builtinWorkflows = [
         '文件、上网、git、记忆、技能都用得上。用中文回答。',
     toolsets: [
       'file', 'web', 'memory', 'todo', 'skills', 'session_search', 'git',
-      'clarify', 'delegate', 'moa', 'cron', 'vision',
+      'clarify', 'delegate', 'moa', 'cron', 'vision', 'notes',
     ],
     planGate: false,
     autoDelegate: true,
@@ -121,7 +121,7 @@ const List<AgentWorkflow> builtinWorkflows = [
         '5) 连续几题后做回合小结："N 题对 M，弱项在…，建议…"。\n'
         '6) 学生追问概念、问"为什么选B"、要求举反例 → 展开讲（开放题天然支持）。\n'
         '用中文。判题是机械的，你只负责讲解，不要质疑机械判题结果。',
-    toolsets: ['study', 'memory', 'file', 'session_search'],
+    toolsets: ['study', 'memory', 'file', 'session_search', 'notes'],
     planGate: false,
     autoDelegate: false,
     maxSteps: 120,

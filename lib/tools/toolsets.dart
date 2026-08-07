@@ -237,6 +237,12 @@ Map<String, ToolsetDef> toolsetDefs = {
         '(multi-stage refined pipeline)',
     tools: ['study_list', 'study_question'],
   ),
+  'notes': ToolsetDef(
+    description:
+        'Notes library tools: list/search/read/write the notes library '
+        '(documents/notes, includes subject_library 讲义)',
+    tools: ['notes_list', 'notes_search', 'notes_read', 'notes_write'],
+  ),
   'project': ToolsetDef(
     description:
         'Desktop Projects — create/switch named workspaces (GUI sessions only)',
