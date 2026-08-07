@@ -96,6 +96,10 @@ dev_dependencies:
 dependency_overrides:
   flutter_inappwebview_android:
     path: third_party/flutter_inappwebview_android
+  # file_picker 11.0.3 在 AGP 9 + Flutter Built-in Kotlin 下条件跳过 KGP，
+  # 导致 FilePickerPlugin.kt 未编译 → 本地副本修 build.gradle 始终应用 Kotlin。
+  file_picker:
+    path: third_party/file_picker
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

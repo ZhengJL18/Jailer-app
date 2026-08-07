@@ -1,0 +1,64 @@
+group 'com.mr.flutter.plugin.filepicker'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    ext {
+        kotlin_version = '2.3.20'
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: 'com.android.library'
+// 始终应用 Kotlin 插件（不依赖 AGP 版本条件判断）。
+// 原版 if (!isAgp9OrAbove) 在 AGP 9 + Flutter Built-in Kotlin 下跳过 KGP，
+// 导致 FilePickerPlugin.kt 未编译 → GeneratedPluginRegistrant 找不到类。
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    compileSdk flutter.compileSdkVersion
+
+    defaultConfig {
+        minSdk 21
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles 'proguard-rules.pro'
+    }
+    lintOptions {
+        disable 'InvalidPackage'
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17.toString()
+    }
+
+    dependencies {
+        implementation 'androidx.core:core:1.15.0'
+        implementation 'androidx.annotation:annotation:1.9.1'
+        implementation "androidx.lifecycle:lifecycle-runtime:2.8.7"
+    }
+
+    if (project.android.hasProperty("namespace")) {
+        namespace 'com.mr.flutter.plugin.filepicker' 
+    }
+}
+dependencies {
+    implementation 'androidx.core:core-ktx:1.15.0'
+}
