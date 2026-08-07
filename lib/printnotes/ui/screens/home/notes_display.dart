@@ -8,6 +8,7 @@ import 'package:jailer/printnotes/providers/settings_provider.dart';
 import 'package:jailer/printnotes/providers/selecting_provider.dart';
 import 'package:jailer/printnotes/providers/navigation_provider.dart';
 import 'package:jailer/printnotes/providers/customization_provider.dart';
+import 'package:jailer/printnotes/utils/configs/data_path.dart';
 
 import 'package:jailer/printnotes/utils/handlers/style_handler.dart';
 import 'package:jailer/printnotes/utils/handlers/item_move.dart';
@@ -52,7 +53,17 @@ class _NotesDisplayState extends State<NotesDisplay> {
     final readSettings = context.read<SettingsProvider>();
     final readNavProv = context.read<NavigationProvider>();
 
-    // readNavProv.initRouteHistory(readSettings.mainDir);
+    // mainDir 兜底：loadSettings 异步，首帧可能未完成 → mainDir 空字符串会
+    // 让 loadItems('') 走错分支。用 DataPath.selectedDirectory 取默认目录。
+    if (readSettings.mainDir.isEmpty) {
+      final dir = await DataPath.selectedDirectory;
+      if (dir != null && dir.isNotEmpty) readSettings.setMainDir(dir);
+    }
+
+    // 确保 routeHistory 有初始条目（原 printnotes 在 App.loadApp 里做，
+    // 本集成用 App.init 替代，这里补上）。否则 routeHistory.last 空列表抛异常，
+    // _isLoading 卡 true 导致无限刷新。
+    readNavProv.initRouteHistory(readSettings.mainDir);
 
     await readSettings.loadItems(context, readNavProv.routeHistory.last);
 
