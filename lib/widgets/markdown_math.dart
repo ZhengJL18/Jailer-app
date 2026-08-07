@@ -55,6 +55,10 @@ class HermesMarkdown extends StatelessWidget {
       data: data,
       opts: opts,
       selectable: selectable,
+      // MarkdownWidget 内部是 ListView，嵌在自适应高度容器（聊天气泡/预览）里
+      // 必须 shrinkWrap + 禁内层滚动，否则高度塌陷成 0 导致内容不可见。
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
     );
   }
 }
