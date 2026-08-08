@@ -265,6 +265,9 @@ class OpenAiLlmClient {
     final lastIdAtIdx = <int, String>{};
     final activeSlotByIdx = <int, int>{};
     var finishReason = 'stop';
+    // 是否收到明确的流结束标记（finish_reason 帧或 [DONE]）。连接中途干净
+    // EOF（无结束标记）会被识别为中断而非成功，触发 agent 重试。
+    var sawCompletion = false;
     String? usageObj;
 
     void handleLine(String line) {
@@ -278,7 +281,11 @@ class OpenAiLlmClient {
         activeSlotByIdx: activeSlotByIdx,
         onDelta: onDelta,
         onReasoning: onReasoning,
-        finishReason: (v) => finishReason = v,
+        finishReason: (v) {
+          finishReason = v;
+          if (v.isNotEmpty) sawCompletion = true;
+        },
+        onDone: () => sawCompletion = true,
         usageObj: (v) => usageObj = v,
       );
     }
@@ -288,12 +295,13 @@ class OpenAiLlmClient {
     final timedStream = utf8.decoder
         .bind(response.stream)
         .timeout(const Duration(seconds: 30));
-    // 总时长兜底（60s）：整段流式读取不超过此上限，防极端挂起。
-    final totalTimeout = Duration(seconds: 60);
+    // 总时长兜底（180s）：推理模型思考可能超 60s，原 60s 硬截断会把
+    // 正常长思考误判为超时。
+    final totalTimeout = Duration(seconds: 180);
     final totalDeadline = DateTime.now().add(totalTimeout);
     await for (final chunk in timedStream) {
       if (DateTime.now().isAfter(totalDeadline)) {
-        throw LlmException('LLM stream timeout after 60s');
+        throw LlmException('LLM stream timeout after 180s');
       }
       if (isCancelled?.call() ?? false) {
         break; // 用户中断：丢弃剩余流，返回已聚合内容。
@@ -308,6 +316,12 @@ class OpenAiLlmClient {
     }
     if (buffer.trim().isNotEmpty) {
       handleLine(buffer);
+    }
+
+    // 连接干净关闭但从未收到结束标记 → 视为中断，抛错让 agent 重试，
+    // 否则部分截断内容会被当成功回答上屏。
+    if (!sawCompletion && !(isCancelled?.call() ?? false)) {
+      throw LlmException('LLM stream ended without completion marker');
     }
 
     return LlmTurnResult(
@@ -331,6 +345,7 @@ void _processSseLine(
   void Function(String delta)? onReasoning,
   required void Function(String) finishReason,
   required void Function(String) usageObj,
+  void Function()? onDone,
 }) {
   final line = rawLine.trim();
   if (line.isEmpty || !line.startsWith('data:')) {
@@ -338,6 +353,7 @@ void _processSseLine(
   }
   final data = line.substring(5).trim();
   if (data == '[DONE]') {
+    onDone?.call();
     return;
   }
   Map<String, dynamic> json;

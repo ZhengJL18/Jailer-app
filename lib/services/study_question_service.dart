@@ -151,9 +151,11 @@ class StudyQuestionService {
 
     final recent = await engine.recentQuestions(kpId);
     final note = _findNoteForKp(kp);
-    final profile = _readFileSafe(profilePath);
+    var profile = _readFileSafe(profilePath);
     final skill = _readFileSafe(skillPath);
     final mastery = kp.mastery;
+    // 画像不做长度上限会击穿 taskCard 的 ≤1K token 预算，截断保护。
+    if (profile.length > 2000) profile = profile.substring(0, 2000);
 
     // 难度档：优先入参，否则由掌握度推（低掌握→简单）。
     final difficulty = targetDifficulty ??

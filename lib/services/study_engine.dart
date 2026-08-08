@@ -181,21 +181,23 @@ class StudyEngine {
     return out;
   }
 
-  /// 单个知识点掌握度（近 [masteryWindow] 题正确率，无记录→0.5）。
+  /// 单个知识点掌握度（近 [masteryWindow] 次作答正确率，无记录→0.5）。
+  ///
+  /// 原实现取"最近创建的 N 道题"再聚合它们的作答：练旧题（id 小）时该次
+  /// 作答不计入，掌握度失真。改为按作答记录时间取最近 N 次，符合
+  /// "近 N 题正确率"语义，也避免同一题答多次被重复计入分母。
   Future<(double, int)> _masteryOf(int kpId) async {
-    final rows = await db.rawQuery('''
-      SELECT q.id FROM questions q
-      WHERE q.kp_id = ?
-      ORDER BY q.id DESC
-      LIMIT ?
-    ''', [kpId, masteryWindow]);
-    final qIds = [for (final r in rows) r['id'] as int];
+    final qRows = await db.rawQuery(
+        'SELECT id FROM questions WHERE kp_id = ?', [kpId]);
+    final qIds = [for (final r in qRows) r['id'] as int];
     if (qIds.isEmpty) return (0.5, 0);
     final placeholders = List.filled(qIds.length, '?').join(',');
     final pr = await db.rawQuery('''
       SELECT correct FROM practice_records
       WHERE question_id IN ($placeholders)
-    ''', qIds);
+      ORDER BY id DESC
+      LIMIT ?
+    ''', [...qIds, masteryWindow]);
     if (pr.isEmpty) return (0.5, 0);
     final correct = pr.where((r) => (r['correct'] as int) == 1).length;
     return (correct / pr.length, pr.length);

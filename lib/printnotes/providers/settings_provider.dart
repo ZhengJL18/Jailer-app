@@ -231,7 +231,9 @@ class SettingsProvider with ChangeNotifier {
     if (isTag) {
       currentFolderName = folder;
     } else if (folder != mainDir) {
-      currentFolderName = folder.replaceFirst(mainDir, '');
+      // 去掉前导分隔符，顶栏不再显示 "/数学"。
+      currentFolderName = folder.replaceFirst(mainDir, '').replaceFirst('/',
+          '');
     } else {
       currentFolderName;
     }

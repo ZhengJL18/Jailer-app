@@ -116,10 +116,11 @@ class UpdateService {
     void Function(double progress)? onProgress,
   }) async {
     try {
+      // 下载加超时上限，避免慢网/断流时永远转圈不返回。
       await AppInstallerPlus().downloadAndInstallApk(
         downloadFileUrl: downloadUrl,
         onProgress: onProgress,
-      );
+      ).timeout(const Duration(minutes: 15));
       return true;
     } catch (e) {
       return false;

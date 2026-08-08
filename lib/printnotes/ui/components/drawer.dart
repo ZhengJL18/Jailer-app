@@ -119,7 +119,13 @@ class DrawerView extends StatelessWidget {
                 ListTile(
                     leading: const Icon(Icons.menu_book),
                     title: const Text('返回聊天'),
-                    onTap: () => Navigator.of(context).pop()),
+                    onTap: () {
+                      // 抽屉开启态：第一次 pop 关抽屉（local history），
+                      // 第二次 pop 离开笔记页回聊天页。
+                      final nav = Navigator.of(context);
+                      nav.pop();
+                      nav.pop();
+                    }),
               ],
             ),
           ),

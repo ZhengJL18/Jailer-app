@@ -325,6 +325,18 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
     _activeAgent?.cancel();
+    // 停在思考阶段（只流了 reasoning 无 content）时，移除残留的思考块，
+    // 否则灰色"思考中…"永久卡在对话里。
+    setState(() {
+      if (_reasoningMsgIdx >= 0 && _reasoningMsgIdx < _messages.length) {
+        _messages.removeAt(_reasoningMsgIdx);
+        for (final k in _toolRunningIdx.keys.toList()) {
+          final v = _toolRunningIdx[k];
+          if (v != null && v > _reasoningMsgIdx) _toolRunningIdx[k] = v - 1;
+        }
+        _reasoningMsgIdx = -1;
+      }
+    });
   }
 
   /// 深链：打开 agent 刚写入的笔记（复用 printnotes 编辑器）。
@@ -475,23 +487,32 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _downloadAndInstall(UpdateInfo info) async {
     if (!mounted) return;
-    // 下载进度提示。
+    // 下载提示可关闭（返回键/点击遮罩/「后台下载」都不打断下载，只收起弹窗）。
+    // 之前 barrierDismissible: false 无取消按钮，国内慢网时 UI 永久阻塞。
+    var dialogOpen = true;
     showDialog<void>(
       context: context,
-      barrierDismissible: false,
+      barrierDismissible: true,
       builder: (ctx) => AlertDialog(
-        content: Row(
-          children: const [
+        content: const Row(
+          children: [
             CircularProgressIndicator(),
             SizedBox(width: 16),
             Text('正在下载更新…'),
           ],
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('后台下载'),
+          ),
+        ],
       ),
-    );
+    ).then((_) => dialogOpen = false);
     final ok = await UpdateService.downloadAndInstall(info.downloadUrl);
     if (!mounted) return;
-    Navigator.of(context).pop(); // 关下载提示
+    // 弹窗还开着才关；用户已手动关闭则不再 pop（否则会误弹掉聊天页）。
+    if (dialogOpen) Navigator.of(context).pop();
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('下载/安装失败，请稍后重试')),
@@ -558,6 +579,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final sdb = _sessionDb;
     if (sdb == null) return;
     if (!mounted) return;
+    // 生成中新建：先停掉在跑的 agent，防止它往新会话流式写。
+    if (_running) {
+      _activeAgent?.cancel();
+      _running = false;
+    }
     final newId = 's${DateTime.now().millisecondsSinceEpoch}';
     try {
       await sdb.createSession(newId, source: 'app');
@@ -573,6 +599,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _currentSessionId = newId;
       _pendingPlan = null;
       _pendingTask = null;
+      _studyChoices.clear(); // 题目作答状态不跨会话泄漏。
     });
   }
 
@@ -715,11 +742,11 @@ class _ChatScreenState extends State<ChatScreen> {
             }
             _reasoningMsgIdx = -1;
           }
-          if (_messages.isEmpty ||
-              _messages.last.role == 'user' ||
-              _messages.last.role == 'tool') {
+          // 最后一条非 assistant（user/tool/refine/discussion/题卡…）→ 开新
+          // assistant；否则拼接。修复 refine 卡在末尾时 delta 被静默丢弃。
+          if (_messages.isEmpty || _messages.last.role != 'assistant') {
             _messages.add(_ChatMessage.assistant(delta));
-          } else if (_messages.last.role == 'assistant') {
+          } else {
             final last = _messages.last;
             _messages[_messages.length - 1] = _ChatMessage.assistant(
                 (last.text ?? '') + delta);
@@ -769,8 +796,18 @@ class _ChatScreenState extends State<ChatScreen> {
       _addAssistant('出错了：$e');
     } finally {
       _activeAgent = null;
-      _reasoningMsgIdx = -1;
-      setState(() => _running = false);
+      // 若仍残留思考块（停在纯 reasoning 阶段，onDelta 未触发过），一并清掉。
+      setState(() {
+        if (_reasoningMsgIdx >= 0 && _reasoningMsgIdx < _messages.length) {
+          _messages.removeAt(_reasoningMsgIdx);
+          for (final k in _toolRunningIdx.keys.toList()) {
+            final v = _toolRunningIdx[k];
+            if (v != null && v > _reasoningMsgIdx) _toolRunningIdx[k] = v - 1;
+          }
+        }
+        _reasoningMsgIdx = -1;
+        _running = false;
+      });
     }
     _recordTrajectoryAndRefine(task, lastResult, ranError);
   }
@@ -854,18 +891,21 @@ class _ChatScreenState extends State<ChatScreen> {
         ],
       });
     } catch (e) {
-      return '{"error":"$e"}';
+      // jsonEncode 而非字符串插值，防止异常消息含引号产出畸形 JSON。
+      return jsonEncode({'error': e.toString()});
     }
   }
 
   /// study_question 执行器：多阶段精炼出题。
+  /// 失败返回给 agent 的友好说明（不是 JSON），避免 agent 按学习工作流把
+  /// 错误 JSON 原样包成 ```json 输出、界面把它当题目卡处理。
   Future<String> _studyQuestion(int kpId, {String? targetDifficulty}) async {
     final engine = _studyEngine;
-    if (engine == null) return '{"error":"学习引擎未初始化"}';
+    if (engine == null) return '出题失败：学习引擎未初始化';
     final svc = _studyQuestionService;
     if (svc == null) {
       final config = await MIXConfig.load();
-      if (config == null) return '{"error":"AI 未配置"}';
+      if (config == null) return '出题失败：AI 未配置';
       final dir = (await getApplicationDocumentsDirectory()).path;
       _studyQuestionService = StudyQuestionService(
         llm: OpenAiLlmClient(config: config.toLlmConfig()),
@@ -882,11 +922,12 @@ class _ChatScreenState extends State<ChatScreen> {
         targetDifficulty: targetDifficulty,
       );
       if (result.error != null) {
-        return '{"error":"${result.error}"}';
+        return '出题失败：${result.error}（这不是题目，直接告诉用户出题失败'
+            '并建议换一个知识点重试）';
       }
-      return result.json ?? '{"error":"无输出"}';
+      return result.json ?? '出题失败：无输出';
     } catch (e) {
-      return '{"error":"出题失败: $e"}';
+      return '出题失败：$e（这不是题目，直接告诉用户出题失败并建议重试）';
     }
   }
 
@@ -898,6 +939,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final msg = '我刚答了$label，选了 $letter，'
         '${correct ? "对了" : "正确答案是 $answer，我答错了"}。'
         '请讲解这道题（为什么对、干扰项为什么错），然后提议下一题。';
+    // 与 _send 一致：先把 user 消息加入 UI（讲解流式时 last 是 user → 开新
+    // assistant），并置 _running 锁输入/显示进度。此前漏掉导致讲解被拼进
+    // 题目卡、完成时题目卡被整条替换成裸文本。
+    _addUser(msg);
+    setState(() => _running = true);
     unawaited(_runTaskWithFullTools(msg));
   }
 
@@ -1592,6 +1638,11 @@ class _ChatScreenState extends State<ChatScreen> {
     return null;
   }
 
+  /// 去掉文本里所有 ```json … ``` 题目块，保留其余文字。
+  String _stripQuestionBlocks(String text) {
+    return text.replaceAll(RegExp(r'```json.*?```', dotAll: true), '');
+  }
+
   /// 归一化答案字母：容忍 'a' / 'A.' / 'A)' / 'A、' 等，取 A-D 首字母。
   String _normalizeAnswer(dynamic a) {
     if (a is! String) return '';
@@ -1876,9 +1927,40 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       case 'assistant':
         // 题目卡检测：agent 以 ```json 输出题目 → 渲染可点题卡。
+        // 消息里若同时有普通文字和题目块，分别渲染，不吞掉文字。
         final qJson = _extractQuestionJson(m.text ?? '');
         if (qJson != null) {
-          return _buildStudyCard(qJson);
+          final prose = _stripQuestionBlocks(m.text ?? '').trim();
+          if (prose.isEmpty) {
+            return _buildStudyCard(qJson);
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.85,
+                  ),
+                  child: MIXMarkdown(
+                    data: prose,
+                    selectable: true,
+                  ),
+                ),
+              ),
+              _buildStudyCard(qJson),
+            ],
+          );
         }
         return Align(
           alignment: Alignment.centerLeft,
@@ -2020,7 +2102,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         onPressed: () {
                           setState(() {
                             _pendingPlan = null;
-                            _messages.removeLast();
+                            // 精确删除审批卡，而非 removeLast（用户可能已发新消息）。
+                            final idx = _messages.indexWhere((e) =>
+                                e.role == 'tool' &&
+                                e.toolName == 'plan_approval');
+                            if (idx >= 0) _messages.removeAt(idx);
                           });
                         },
                         child: const Text('拒绝'),

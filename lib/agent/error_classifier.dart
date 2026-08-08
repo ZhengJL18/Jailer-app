@@ -110,6 +110,16 @@ ClassifiedError classifyApiError(Object error, {String? provider, String? model}
   final status = extractStatusCode(error);
   final text = _errorText(error);
 
+  // 超时：模型长思考或服务端挂起，重试只会再等一轮（且可能重复消耗）。
+  // 标记不可重试，让 agent 直接返回已流式内容而不是卡死 3 次重试。
+  if (text.contains('timeout') || text.contains('ended without completion')) {
+    return ClassifiedError(
+      reason: FailoverReason.network,
+      message: error.toString(),
+      retryable: false,
+    );
+  }
+
   // 网络错误（无状态码）→ 可重试。
   if (status == null) {
     if (error is LlmNetworkError) {

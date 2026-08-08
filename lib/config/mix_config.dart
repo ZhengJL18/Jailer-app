@@ -93,9 +93,14 @@ class MIXConfig {
   Future<List<String>?> fetchModels() async {
     final llm = toLlmConfig();
     final uri = Uri.parse(llm.baseUrl);
-    // 把 /chat/completions 换成 /models。
+    // 把 `/chat/completions`（或 `/completions`）换成 `/models`。
+    // 注意 pathSegments 会把 "chat/completions" 拆成两段，last 是 'completions'，
+    // 原实现比较 'chat/completions' 恒不匹配，导致拼出 .../completions/models。
     final segments = uri.pathSegments.toList();
-    if (segments.isNotEmpty && segments.last == 'chat/completions') {
+    if (segments.isNotEmpty && segments.last == 'completions') {
+      segments.removeLast();
+    }
+    if (segments.isNotEmpty && segments.last == 'chat') {
       segments.removeLast();
     }
     segments.add('models');

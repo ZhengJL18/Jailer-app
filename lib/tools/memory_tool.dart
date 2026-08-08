@@ -160,19 +160,19 @@ class MemoryStore {
     }
   }
 
-  /// 原子写记忆文件（临时文件 + rename）。
-  void saveToDisk(String target) {
+  /// 原子写记忆文件（临时文件 + rename）。失败返回错误串，成功返回 null。
+  /// 原实现吞掉写盘异常并返回假成功，记忆只在内存、重启即丢，agent 却被告知成功。
+  String? saveToDisk(String target) {
     final path = _pathFor(target);
     final content = _entriesFor(target).join(entryDelimiter);
-    Directory(p.dirname(path)).createSync(recursive: true);
-    final tmp = '$path.tmp.$pid';
     try {
+      Directory(p.dirname(path)).createSync(recursive: true);
+      final tmp = '$path.tmp.$pid';
       File(tmp).writeAsStringSync(content, flush: true);
       File(tmp).renameSync(path);
-    } catch (_) {
-      try {
-        if (File(tmp).existsSync()) File(tmp).deleteSync();
-      } catch (_) {}
+      return null;
+    } catch (e) {
+      return '写记忆文件失败: $e';
     }
   }
 
@@ -207,7 +207,8 @@ class MemoryStore {
       });
     }
     _setEntries(target, newEntries);
-    saveToDisk(target);
+    final err = saveToDisk(target);
+    if (err != null) return {'success': false, 'error': err};
     return successResponse(target, 'Entry added.');
   }
 
@@ -270,7 +271,8 @@ class MemoryStore {
       });
     }
     _setEntries(target, testEntries);
-    saveToDisk(target);
+    final err = saveToDisk(target);
+    if (err != null) return {'success': false, 'error': err};
     return successResponse(target, 'Entry replaced.');
   }
 
@@ -307,7 +309,8 @@ class MemoryStore {
     final idx = matches.first;
     entries.removeAt(idx);
     _setEntries(target, entries);
-    saveToDisk(target);
+    final err = saveToDisk(target);
+    if (err != null) return {'success': false, 'error': err};
     return successResponse(target, 'Entry removed.');
   }
 
@@ -389,7 +392,8 @@ class MemoryStore {
       });
     }
     _setEntries(target, entries);
-    saveToDisk(target);
+    final err = saveToDisk(target);
+    if (err != null) return {'success': false, 'error': err};
     return successResponse(target, 'Batch applied.');
   }
 

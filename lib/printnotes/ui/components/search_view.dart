@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as path;
@@ -54,7 +55,9 @@ class _SearchViewState extends State<SearchView> {
       final raf = file.openSync();
       try {
         final bytes = raf.readSync(max);
-        return String.fromCharCodes(bytes);
+        // 必须用 utf8.decode，否则中文按字节 fromCharCodes 变乱码、subtitle
+        // 永远匹配不上查询词。
+        return utf8.decode(bytes, allowMalformed: true);
       } finally {
         raf.closeSync();
       }

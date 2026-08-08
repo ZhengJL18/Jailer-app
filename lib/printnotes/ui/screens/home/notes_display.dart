@@ -88,6 +88,16 @@ class _NotesDisplayState extends State<NotesDisplay> {
         const Duration(milliseconds: 300), () async => await _loadItems());
   }
 
+  /// FAB 新建的安全路径：最近打开/标签是伪视图（currentPath 为 'Recently
+  /// Opened' 或裸标签名，非真实目录），新建会落到进程 cwd 而笔记库看不到。
+  /// 用「是否真实目录」判断，非目录一律退回笔记根 mainDir。
+  String _safeCreatePath(String currentPath) {
+    if (currentPath.isEmpty || !Directory(currentPath).existsSync()) {
+      return context.read<SettingsProvider>().mainDir;
+    }
+    return currentPath;
+  }
+
   /// 更多菜单：布局 / 排序 / 文件夹置顶（原 MainScaffold 顶部菜单，合并后归属本页）。
   Widget _buildMoreMenu(BuildContext context) {
     final curLayout = context.watch<SettingsProvider>().layout;
@@ -408,11 +418,7 @@ class _NotesDisplayState extends State<NotesDisplay> {
                   ),
         floatingActionButton: _isSearching
             ? null
-            : speedDialFAB(
-                context,
-                currentPath.isNotEmpty
-                    ? currentPath
-                    : context.read<SettingsProvider>().mainDir),
+            : speedDialFAB(context, _safeCreatePath(currentPath)),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
     );

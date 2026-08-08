@@ -4,6 +4,7 @@
 /// skill_view 查找三策略（直接路径/目录名递归/旧式 .md）+ 路径穿越校验。
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -171,7 +172,8 @@ class SkillDiscovery {
       final raf = f.openSync();
       final bytes = raf.readSync(4000);
       raf.closeSync();
-      return String.fromCharCodes(bytes);
+      // UTF-8 解码，否则中文名/描述变乱码。
+      return utf8.decode(bytes, allowMalformed: true);
     } catch (_) {
       return '';
     }

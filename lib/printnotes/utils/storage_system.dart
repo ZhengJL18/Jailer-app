@@ -227,9 +227,12 @@ class StorageSystem {
   static Future<bool> nameExists(String name, {String? parentPath}) async {
     final baseDir = parentPath ?? await DataPath.selectedDirectory;
     final fullPath = path.join(baseDir!, name);
+    // 原实现只查 `$fullPath.md`，漏掉了输入本身带扩展名的场景（如 'foo.md'
+    // 或 sketch 的 'foo.bson'）——会检测不到已存在的同名文件，随后覆盖。
+    final rawExists = await File(fullPath).exists();
     final fileExists = await File('$fullPath.md').exists();
     final folderExists = await Directory(fullPath).exists();
-    return fileExists || folderExists;
+    return rawExists || fileExists || folderExists;
   }
 
   // Methods related to creating, loading, and saving files

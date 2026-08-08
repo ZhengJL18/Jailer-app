@@ -33,11 +33,28 @@ class TreeLayoutView extends StatefulWidget {
 
 class _TreeLayoutViewState extends State<TreeLayoutView> {
   late TreeNode<Explorable> _rootNode;
+  String _lastItemsSig = '';
 
   @override
   void initState() {
     super.initState();
     _loadTree();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 文件增删/重命名/切换目录后自动重建树（此前只在 initState 加载，
+    // 新建/删除笔记后树一直停留在旧内容，需切布局才刷新）。
+    final sig = context
+        .watch<SettingsProvider>()
+        .items
+        .map((e) => e.path)
+        .join('|');
+    if (sig != _lastItemsSig) {
+      _lastItemsSig = sig;
+      _loadTree();
+    }
   }
 
   Future<void> _loadTree() async {

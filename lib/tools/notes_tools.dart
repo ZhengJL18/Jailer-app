@@ -48,12 +48,13 @@ bool _isHiddenPath(String abs, String root) {
 }
 
 /// 递归列出笔记库可见条目（跳过隐藏目录），onEntry 收相对根路径。
+/// followLinks: false —— 符号链接不跟随，避免环状链接无限递归死循环。
 Future<void> _walkVisible(
   Directory dir,
   String root,
   void Function(bool isDir, String rel) onEntry,
 ) async {
-  await for (final e in dir.list(followLinks: true)) {
+  await for (final e in dir.list(followLinks: false)) {
     if (_isHiddenPath(e.path, root)) continue;
     final rel = p.relative(e.path, from: root);
     if (e is Directory) {
@@ -88,7 +89,7 @@ Future<String> _handleNotesList(Map<String, dynamic> args,
         lines.add(isDir ? '[目录] $rel/' : '[文件] $rel');
       });
     } else {
-      await for (final e in Directory(dir).list(followLinks: true)) {
+      await for (final e in Directory(dir).list(followLinks: false)) {
         if (_isHiddenPath(e.path, root)) continue;
         final rel = p.relative(e.path, from: root);
         lines.add(e is Directory ? '[目录] $rel/' : '[文件] $rel');
