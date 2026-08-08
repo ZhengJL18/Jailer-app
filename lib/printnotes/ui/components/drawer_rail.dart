@@ -4,11 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:mix/printnotes/providers/navigation_provider.dart';
 import 'package:mix/printnotes/providers/settings_provider.dart';
 
-import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
-
 import 'package:mix/printnotes/ui/screens/trash_archive_screens.dart';
-import 'package:mix/printnotes/ui/screens/settings/settings_screen.dart';
-import 'package:mix/printnotes/ui/screens/about/about_screen.dart';
 
 class DrawerRailView extends StatelessWidget {
   const DrawerRailView({super.key, required this.reload});
@@ -40,7 +36,7 @@ class DrawerRailView extends StatelessWidget {
           children: [
             IconButton(
               icon: const Icon(Icons.article_outlined),
-              tooltip: 'All Notes',
+              tooltip: '全部笔记',
               onPressed: () {
                 _navigateToScreen(context,
                     path: context.read<SettingsProvider>().mainDir);
@@ -49,7 +45,7 @@ class DrawerRailView extends StatelessWidget {
             ),
             IconButton(
               icon: const Icon(Icons.history),
-              tooltip: 'Recent',
+              tooltip: '最近打开',
               onPressed: () {
                 _navigateToScreen(context, path: '⏱');
                 reload();
@@ -58,7 +54,7 @@ class DrawerRailView extends StatelessWidget {
             const Opacity(opacity: 0.2, child: Divider()),
             IconButton(
               icon: const Icon(Icons.archive_outlined),
-              tooltip: 'Archive',
+              tooltip: '归档',
               onPressed: () => _navigateToScreen(context,
                   path: context.read<SettingsProvider>().archivePath,
                   screen: const TrashArchiveScreen(
@@ -67,7 +63,7 @@ class DrawerRailView extends StatelessWidget {
             ),
             IconButton(
               icon: const Icon(Icons.delete_outlined),
-              tooltip: 'Trash',
+              tooltip: '回收站',
               onPressed: () => _navigateToScreen(context,
                   path: context.read<SettingsProvider>().trashPath,
                   screen: const TrashArchiveScreen(
@@ -76,22 +72,10 @@ class DrawerRailView extends StatelessWidget {
             ),
             const Opacity(opacity: 0.2, child: Divider()),
             IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              tooltip: 'Settings',
-              onPressed: () =>
-                  _navigateToScreen(context, screen: const SettingsScreen()),
+              icon: const Icon(Icons.menu_book),
+              tooltip: '返回聊天',
+              onPressed: () => Navigator.of(context).pop(),
             ),
-            IconButton(
-              icon: const Icon(Icons.info_outlined),
-              tooltip: 'About',
-              onPressed: () =>
-                  _navigateToScreen(context, screen: const AboutScreen()),
-            ),
-            IconButton(
-                icon: const Icon(Icons.help_outline),
-                tooltip: 'Wiki',
-                onPressed: () => urlHandler(
-                    context, 'https://github.com/RoBoT095/printnotes/wiki')),
           ],
         ),
       ),

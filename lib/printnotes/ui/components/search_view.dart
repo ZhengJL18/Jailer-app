@@ -8,7 +8,7 @@ import 'package:mix/printnotes/providers/settings_provider.dart';
 import 'package:mix/printnotes/providers/navigation_provider.dart';
 import 'package:mix/printnotes/utils/storage_system.dart';
 
-class SearchView extends StatelessWidget {
+class SearchView extends StatefulWidget {
   const SearchView({
     super.key,
     required this.searchQuery,
@@ -16,14 +16,64 @@ class SearchView extends StatelessWidget {
 
   final String searchQuery;
 
+  @override
+  State<SearchView> createState() => _SearchViewState();
+}
+
+class _SearchViewState extends State<SearchView> {
+  // 缓存当前查询的 future，避免每次 rebuild 全库重扫。
+  String _cacheQuery = '';
+  Future<List<FileSystemEntity>>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _cacheQuery = widget.searchQuery;
+    _future = _buildFuture(widget.searchQuery);
+  }
+
+  @override
+  void didUpdateWidget(SearchView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchQuery != _cacheQuery) {
+      _cacheQuery = widget.searchQuery;
+      _future = _buildFuture(widget.searchQuery);
+    }
+  }
+
+  Future<List<FileSystemEntity>> _buildFuture(String query) {
+    final q = query.trim();
+    // 空查询不扫描：直接返回空列表。
+    if (q.isEmpty) return Future.value(const <FileSystemEntity>[]);
+    return StorageSystem(context).searchItems(q);
+  }
+
+  /// 只读文件头片段，避免整读大笔记阻塞 UI；失败返回空串。
+  String _readHeadSnippet(File file, int max) {
+    try {
+      final raf = file.openSync();
+      try {
+        final bytes = raf.readSync(max);
+        return String.fromCharCodes(bytes);
+      } finally {
+        raf.closeSync();
+      }
+    } catch (_) {
+      return '';
+    }
+  }
+
   Widget? _buildSubtitle(BuildContext context, File item) {
     final relativePath = path.relative(item.path,
         from: context.watch<SettingsProvider>().mainDir);
-    String text = File(item.path).readAsStringSync().replaceAll('\n', ' ');
+    // 读取失败（文件被删/不可读）→ 只显示路径，不崩溃。
+    final text = _readHeadSnippet(item, 4096).replaceAll('\n', ' ');
+    if (text.isEmpty) return Text('/$relativePath');
+
     int maxChar = 40;
 
     String textLC = text.toLowerCase();
-    String searchQueryLC = searchQuery.toLowerCase();
+    String searchQueryLC = widget.searchQuery.trim().toLowerCase();
 
     // if search result empty, return empty text subtitle
     if (searchQueryLC.isEmpty || !textLC.contains(searchQueryLC)) {
@@ -38,7 +88,7 @@ class SearchView extends StatelessWidget {
           '${text.substring(0, text.length < maxChar ? text.length : maxChar).trim()}...');
     }
 
-    final int endIndex = startIndex + searchQuery.length;
+    final int endIndex = startIndex + widget.searchQuery.trim().length;
     final int previewStart = startIndex > 25 ? startIndex - 25 : 0;
     final int previewEnd =
         text.length > endIndex + 25 ? endIndex + 25 : text.length;
@@ -66,18 +116,31 @@ class SearchView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foundItemsList = StorageSystem(context).searchItems(searchQuery);
+    final future = _future;
+    if (future == null) return const SizedBox.shrink();
 
-    return FutureBuilder(
-      future: foundItemsList,
+    return FutureBuilder<List<FileSystemEntity>>(
+      future: future,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return CircularProgressIndicator();
+          return const Center(child: CircularProgressIndicator());
+        }
+        final items = snapshot.data ?? const <FileSystemEntity>[];
+        if (items.isEmpty) {
+          return Center(
+            child: Text(
+              widget.searchQuery.trim().isEmpty
+                  ? '输入关键词搜索笔记'
+                  : '没有找到匹配的笔记',
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.outline),
+            ),
+          );
         }
         return ListView.builder(
-          itemCount: snapshot.data?.length ?? 0,
+          itemCount: items.length,
           itemBuilder: (context, index) {
-            final item = snapshot.data![index];
+            final item = items[index];
 
             return ListTile(
               leading: Icon(

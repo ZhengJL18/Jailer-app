@@ -138,7 +138,9 @@ class SessionDB {
     }
   }
 
-  /// 建会话（upsert）。
+  /// 建会话。仅当 [sessionId] 不存在时插入；已存在则保留原行（含
+  /// started_at/title），避免重启时把会话时间刷新成启动时刻——否则历史页
+  /// 排序失真，旧会话永远显示"刚刚"顶置。
   Future<String> createSession(
     String sessionId, {
     required String source,
@@ -161,7 +163,7 @@ class SessionDB {
         'title': title,
         'cwd': cwd,
       },
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
     );
     return sessionId;
   }

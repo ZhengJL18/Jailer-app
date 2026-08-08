@@ -30,40 +30,9 @@ class UserLayoutPref {
 }
 
 // For styling of app
+// 主题统一由 MIX 的 ThemeController 驱动，这里只保留真正生效的代码高亮配置。
 
 class UserThemingPref {
-  static void setThemeMode(String themeMode) {
-    App.localStorage.setString('themeMode', themeMode);
-  }
-
-  static String getThemeMode() {
-    return App.localStorage.getString('themeMode') ?? 'system';
-  }
-
-  static void setColorScheme(String colorScheme) {
-    App.localStorage.setString('colorScheme', colorScheme);
-  }
-
-  static String getColorScheme() {
-    return App.localStorage.getString('colorScheme') ?? 'default';
-  }
-
-  static void setDynamicColor(bool value) {
-    App.localStorage.setBool('useDynamicColor', value);
-  }
-
-  static bool getDynamicColor() {
-    return App.localStorage.getBool('useDynamicColor') ?? false;
-  }
-
-  static void setPureBlackBG(bool value) {
-    App.localStorage.setBool('usePureBlack', value);
-  }
-
-  static bool getPureBlackBG() {
-    return App.localStorage.getBool('usePureBlack') ?? false;
-  }
-
   static void setCodeHighlight(String highlight) {
     App.localStorage.setString('codeHighlight', highlight);
   }
@@ -136,7 +105,8 @@ class UserStylePref {
   }
 
   static double getNoteTileSpacing() {
-    return App.localStorage.getDouble('noteTileSpacing') ?? 4;
+    // 默认 8：原默认 4 在手机 2 列下过于拥挤。
+    return App.localStorage.getDouble('noteTileSpacing') ?? 8;
   }
 
   static void setNoteEditorPadding(double padding) {

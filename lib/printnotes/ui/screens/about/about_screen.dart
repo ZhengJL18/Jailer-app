@@ -21,7 +21,7 @@ class AboutScreen extends StatelessWidget {
           backgroundColor: Theme.of(context).colorScheme.primary,
           foregroundColor: Theme.of(context).colorScheme.onPrimary,
           centerTitle: true,
-          title: const Text('About'),
+          title: const Text('关于'),
         ),
       ),
       body: SingleChildScrollView(
@@ -29,76 +29,54 @@ class AboutScreen extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Column(
             children: [
+              const SizedBox(height: 8),
+              Icon(Icons.menu_book_rounded,
+                  size: 56, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(height: 8),
+              Text('MIX',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold)),
+              Text('v$appVersion',
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 4),
+              Text('在 Android 沙盒内运行 agent 级能力的笔记 + 学习 App',
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 16),
               MenuTile(
                 iconColor: Theme.of(context).colorScheme.secondary,
-                leading: const Icon(Icons.info_outline),
-                title: 'Version',
-                subtitle: MenuTile.subtitleText(context, text: appVersion),
+                leading: const Icon(Icons.code),
+                title: '项目仓库',
+                subtitle: MenuTile.subtitleText(context,
+                    text: 'https://github.com/ZhengJL18/MIX'),
+                onTap: () => urlHandler(
+                    context, 'https://github.com/ZhengJL18/MIX'),
+                onLongPress: () => urlHandler(
+                    context, 'https://github.com/ZhengJL18/MIX',
+                    copyToClipboard: true),
+                trailing: const Icon(Icons.launch_rounded),
                 isFirst: true,
-                isLast: true,
               ),
               const SizedBox(height: 12),
               MenuTile(
                 iconColor: Theme.of(context).colorScheme.secondary,
-                leading: const Icon(Icons.code),
-                title: 'Contribute',
+                leading: const Icon(Icons.menu_book),
+                title: '第三方库',
                 subtitle: MenuTile.subtitleText(context,
-                    text: 'https://github.com/RoBoT095/printnotes'),
+                    text: '点击查看使用的第三方库及许可'),
+                onTap: () => showLibrariesDialog(context),
+                trailing: const Icon(Icons.arrow_back_ios_new_rounded),
+              ),
+              const SizedBox(height: 12),
+              MenuTile(
+                iconColor: Theme.of(context).colorScheme.secondary,
+                leading: const Icon(Icons.article),
+                title: '笔记引擎',
+                subtitle: MenuTile.subtitleText(context,
+                    text: '内置笔记界面基于开源 printnotes（GPL-3.0）集成'),
                 onTap: () => urlHandler(
                     context, 'https://github.com/RoBoT095/printnotes'),
                 onLongPress: () => urlHandler(
                     context, 'https://github.com/RoBoT095/printnotes',
-                    copyToClipboard: true),
-                trailing: const Icon(Icons.launch_rounded),
-                isFirst: true,
-              ),
-              MenuTile(
-                iconColor: Theme.of(context).colorScheme.secondary,
-                leading: const Icon(Icons.person),
-                title: 'Developer',
-                subtitle:
-                    MenuTile.subtitleText(context, text: 'RoBoT_095 aka Rob'),
-                onTap: () => urlHandler(context, 'https://github.com/RoBoT095'),
-                onLongPress: () => urlHandler(
-                    context, 'https://github.com/RoBoT095',
-                    copyToClipboard: true),
-                trailing: const Icon(Icons.launch_rounded),
-              ),
-              MenuTile(
-                iconColor: Theme.of(context).colorScheme.secondary,
-                leading: const Icon(Icons.favorite_border_rounded),
-                title: 'Support',
-                subtitle: MenuTile.subtitleText(
-                  context,
-                  text:
-                      "I'm a solo dev working hard on this, \nMaybe buy me some Coffee?",
-                ),
-                onTap: () =>
-                    urlHandler(context, 'https://buymeacoffee.com/robot_095'),
-                onLongPress: () => urlHandler(
-                    context, 'https://buymeacoffee.com/robot_095',
-                    copyToClipboard: true),
-                trailing: const Icon(Icons.launch_rounded),
-              ),
-              MenuTile(
-                iconColor: Theme.of(context).colorScheme.secondary,
-                leading: const Icon(Icons.menu_book),
-                title: 'Libraries',
-                subtitle: MenuTile.subtitleText(context,
-                    text: 'Click to view third-party libraries and licenses.'),
-                onTap: () => showLibrariesDialog(context),
-                trailing: const Icon(Icons.arrow_back_ios_new_rounded),
-              ),
-              MenuTile(
-                iconColor: Theme.of(context).colorScheme.secondary,
-                leading: const Icon(Icons.article),
-                title: 'App License',
-                subtitle: MenuTile.subtitleText(context,
-                    text: "This App is protected under the GPL 3 License"),
-                onTap: () => urlHandler(
-                    context, 'https://www.gnu.org/licenses/gpl-3.0.en.html'),
-                onLongPress: () => urlHandler(
-                    context, 'https://www.gnu.org/licenses/gpl-3.0.en.html',
                     copyToClipboard: true),
                 trailing: const Icon(Icons.launch_rounded),
                 isLast: true,

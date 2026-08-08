@@ -1,14 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:introduction_screen/introduction_screen.dart';
 
 import 'package:mix/printnotes/providers/settings_provider.dart';
-import 'package:mix/printnotes/providers/theme_provider.dart';
-
-import 'package:mix/printnotes/utils/configs/data_path.dart';
-import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
 class IntroScreen extends StatelessWidget {
   const IntroScreen({super.key});
@@ -18,8 +12,9 @@ class IntroScreen extends StatelessWidget {
     return IntroductionScreen(
       pages: [
         PageViewModel(
-          title: "Welcome to Print(Notes)",
-          body: "Your new favorite markdown notes app. Let's get you set up!",
+          title: "欢迎使用 MIX 笔记库",
+          body: "你的 Markdown 笔记库,与 MIX agent 共用同一目录,"
+              "agent 写的笔记这里能看到,这里编辑的笔记 agent 能读到。",
           image: Center(
               child: Icon(
             Icons.code_rounded,
@@ -28,105 +23,21 @@ class IntroScreen extends StatelessWidget {
           )),
         ),
         PageViewModel(
-          title: "Choose Your Theme",
-          bodyWidget: Column(
-            children: [
-              const Text("Select a theme mode:"),
-              DropdownButton<String>(
-                value: context.watch<ThemeProvider>().themeModeString,
-                items: const [
-                  DropdownMenuItem(value: 'system', child: Text('System')),
-                  DropdownMenuItem(value: 'light', child: Text('Light')),
-                  DropdownMenuItem(value: 'dark', child: Text('Dark')),
-                ],
-                onChanged: (value) {
-                  context.read<ThemeProvider>().setThemeMode(value ?? 'system');
-                },
-              ),
-              const SizedBox(height: 20),
-              const Text("Select a color scheme for your app:"),
-              DropdownButton<String>(
-                value: context.watch<ThemeProvider>().colorScheme,
-                items: const [
-                  DropdownMenuItem(
-                      value: 'default', child: Text('Default Blue')),
-                  DropdownMenuItem(value: 'nordic', child: Text('Nordic')),
-                  DropdownMenuItem(
-                      value: 'green_apple', child: Text('Green Apple')),
-                  DropdownMenuItem(value: 'lavender', child: Text('Lavender')),
-                  DropdownMenuItem(
-                      value: 'strawberry', child: Text('Strawberry')),
-                ],
-                onChanged: (value) {
-                  context
-                      .read<ThemeProvider>()
-                      .setColorScheme(value ?? 'default');
-                },
-              ),
-            ],
-          ),
+          title: "笔记库位置",
+          body: "笔记统一存放在 App 应用目录下的 notes 文件夹,"
+              "与 MIX agent 共用同一个库。\n\n"
+              "agent 写的笔记、学习讲义都会出现在这里,你可以直接浏览、编辑。",
           image: Center(
               child: Icon(
-            Icons.color_lens,
+            Icons.folder,
             size: 150.0,
             color: Theme.of(context).colorScheme.secondary,
           )),
         ),
-        if (!Platform.isIOS)
-          PageViewModel(
-            title: "Choose Your Notes Folder",
-            bodyWidget: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (Platform.isAndroid)
-                  Card(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainer
-                        .withValues(alpha: 0.6),
-                    child: const Padding(
-                      padding: EdgeInsets.all(10),
-                      child: Text(
-                        "If you change folder location, you will be prompted to allow \"All File Access\" as it is needed for app to function properly!",
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                if (Platform.isAndroid) const SizedBox(height: 20),
-                const Text("Select a folder to store your notes:"),
-                ListTile(
-                  title: const Center(child: Text('Notes Location:')),
-                  subtitle: Center(
-                      child: Text(context.watch<SettingsProvider>().mainDir)),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    String? selectedDirectory = await DataPath.pickDirectory();
-                    if (selectedDirectory != null && context.mounted) {
-                      context
-                          .read<SettingsProvider>()
-                          .setMainDir(selectedDirectory);
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.secondary,
-                    foregroundColor: Theme.of(context).colorScheme.onSecondary,
-                  ),
-                  child: const Text("Select Folder"),
-                ),
-              ],
-            ),
-            image: Center(
-                child: Icon(
-              Icons.folder,
-              size: 150.0,
-              color: Theme.of(context).colorScheme.secondary,
-            )),
-          ),
         PageViewModel(
-          title: "Internet Usage",
-          body:
-              "This app uses internet access solely for the purpose of loading images from external URLs when rendered through Markdown or HTML.\n\nNo additional data is transmitted, collected, or stored as user privacy is important.",
+          title: "网络使用",
+          body: "仅当 Markdown/HTML 渲染外部图片链接时才需要联网。\n\n"
+              "除此之外不传输、不收集、不存储任何数据。",
           image: Center(
               child: Icon(
             Icons.wifi_lock,
@@ -143,19 +54,13 @@ class IntroScreen extends StatelessWidget {
         color: Theme.of(context).colorScheme.secondary,
         size: 30,
       ),
-      done: Text("Done",
+      done: Text("完成",
           style: TextStyle(
             fontWeight: FontWeight.w600,
             color: Theme.of(context).colorScheme.secondary,
           )),
       onDone: () {
-        if (context.read<SettingsProvider>().mainDir != 'Not Set') {
-          context.read<SettingsProvider>().setShowIntro(false);
-        } else {
-          customSnackBar('Please select a folder for your notes.',
-                  type: 'warning')
-              .show(context);
-        }
+        context.read<SettingsProvider>().setShowIntro(false);
       },
       dotsDecorator: DotsDecorator(
         size: const Size.square(10.0),

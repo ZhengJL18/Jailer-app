@@ -15,6 +15,9 @@ import 'registry.dart';
 
 String? _notesRootCached;
 
+/// 最近一次 notes_write 成功写入的笔记绝对路径（聊天侧深链「打开笔记」用）。
+String? lastWrittenNotePath;
+
 /// 解析笔记库根目录（documents/notes）。首次调用缓存。
 Future<String> _notesRoot() async {
   if (_notesRootCached != null) return _notesRootCached!;
@@ -37,6 +40,31 @@ Future<bool> _isWithinRoot(String path) async {
   return p.isWithin(root, path);
 }
 
+/// 判断是否为隐藏路径（任一路径段以 . 开头）。
+/// 过滤 .printnotes/.trash/.archive 等配置/回收目录，不暴露给 agent。
+bool _isHiddenPath(String abs, String root) {
+  final rel = p.relative(abs, from: root);
+  return rel.split(p.separator).any((seg) => seg.startsWith('.'));
+}
+
+/// 递归列出笔记库可见条目（跳过隐藏目录），onEntry 收相对根路径。
+Future<void> _walkVisible(
+  Directory dir,
+  String root,
+  void Function(bool isDir, String rel) onEntry,
+) async {
+  await for (final e in dir.list(followLinks: true)) {
+    if (_isHiddenPath(e.path, root)) continue;
+    final rel = p.relative(e.path, from: root);
+    if (e is Directory) {
+      onEntry(true, rel);
+      await _walkVisible(e, root, onEntry);
+    } else if (e is File) {
+      onEntry(false, rel);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // notes_list：列出笔记库目录内容
 // ---------------------------------------------------------------------------
@@ -53,14 +81,17 @@ Future<String> _handleNotesList(Map<String, dynamic> args,
     if (!await _isWithinRoot(dir)) {
       return toolError('notes_list: 路径超出笔记库根目录');
     }
-    final entries = await Directory(dir).list(recursive: recursive).toList();
+    final root = await _notesRoot();
     final lines = <String>[];
-    for (final e in entries) {
-      final rel = p.relative(e.path, from: await _notesRoot());
-      if (e is Directory) {
-        lines.add('[目录] $rel/');
-      } else if (e is File) {
-        lines.add('[文件] $rel');
+    if (recursive) {
+      await _walkVisible(Directory(dir), root, (isDir, rel) {
+        lines.add(isDir ? '[目录] $rel/' : '[文件] $rel');
+      });
+    } else {
+      await for (final e in Directory(dir).list(followLinks: true)) {
+        if (_isHiddenPath(e.path, root)) continue;
+        final rel = p.relative(e.path, from: root);
+        lines.add(e is Directory ? '[目录] $rel/' : '[文件] $rel');
       }
     }
     if (lines.isEmpty) return toolResult({'path': dir, 'items': const <String>[]});
@@ -84,17 +115,18 @@ Future<String> _handleNotesSearch(Map<String, dynamic> args,
     if (query.isEmpty) return toolError('notes_search: 缺少 query');
     final root = await _notesRoot();
     final results = <String>[];
-    await for (final e in Directory(root).list(recursive: true)) {
-      if (e is! File) continue;
+    await _walkVisible(Directory(root), root, (isDir, rel) {
+      if (isDir) return;
+      final e = File(p.join(root, rel));
       final ext = p.extension(e.path).toLowerCase();
-      if (!['.md', '.markdown', '.txt'].contains(ext)) continue;
+      if (!['.md', '.markdown', '.txt'].contains(ext)) return;
       try {
-        final content = await e.readAsString();
+        final content = e.readAsStringSync();
         if (content.toLowerCase().contains(query.toLowerCase())) {
-          results.add(p.relative(e.path, from: root));
+          results.add(rel);
         }
       } catch (_) {}
-    }
+    });
     return toolResult({'query': query, 'matches': results});
   } catch (e) {
     return toolError('notes_search failed: $e');
@@ -151,6 +183,7 @@ Future<String> _handleNotesWrite(Map<String, dynamic> args,
     } else {
       await f.writeAsString(content);
     }
+    lastWrittenNotePath = path;
     return toolResult({
       'path': p.relative(path, from: await _notesRoot()),
       'mode': mode,

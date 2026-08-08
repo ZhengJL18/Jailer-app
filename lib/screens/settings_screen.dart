@@ -10,12 +10,17 @@ import '../config/mix_config.dart';
 import '../services/storage_permission.dart';
 import 'department_screen.dart';
 import 'fast_model_screen.dart';
+import 'github_screen.dart';
 import 'history_screen.dart';
 import 'memory_screen.dart';
 import 'skills_screen.dart';
 import 'theme_screen.dart';
 import 'vault_screen.dart';
 import 'vision_settings_screen.dart';
+import '../main.dart' show checkUpdateHandler;
+import '../printnotes/constants/constants.dart' as pn;
+import '../printnotes/ui/screens/home/main_screen.dart' as printnotes;
+import '../printnotes/ui/screens/settings/settings_screen.dart' as printnotes;
 import '../theme/theme_ext.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -303,6 +308,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            // 笔记分区：笔记库 + 笔记设置（与 agent 共用 documents/notes）。
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.menu_book),
+                    title: const Text('笔记库'),
+                    subtitle: const Text('浏览 / 编辑笔记（与 agent 共用目录）'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const printnotes.MainPage()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.notes),
+                    title: const Text('笔记设置'),
+                    subtitle: const Text('排序 / 布局 / LaTeX / 代码块主题'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const printnotes.SettingsScreen()),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
             // 管理入口：对话历史 + 技能。
             Card(
               child: Column(
@@ -406,6 +444,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             builder: (_) => const MemoryScreen()),
                       );
                     },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 系统：检查更新 / GitHub / 版本。
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.system_update_alt),
+                    title: const Text('检查更新'),
+                    subtitle: const Text('检查 MIX 是否有新版本'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => checkUpdateHandler?.call(),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.code),
+                    title: const Text('GitHub'),
+                    subtitle: const Text('项目仓库'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const GitHubScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.info_outline),
+                    title: const Text('版本'),
+                    subtitle: Text('v${pn.appVersion}'),
                   ),
                 ],
               ),

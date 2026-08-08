@@ -5,56 +5,29 @@ import 'package:mix/printnotes/app.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:file_picker/file_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 
+import 'package:mix/notes/notes_paths.dart';
 import 'package:mix/printnotes/constants/constants.dart';
 import 'package:mix/printnotes/utils/storage_system.dart';
 
 class DataPath {
   static String? _selectedDirectory;
-  static const String _prefKey = 'selected_directory';
   static String get hiddenFolderPath =>
       path.join(_selectedDirectory!, '.printnotes');
 
-  static Future<String?> pickDirectory() async {
-    if (Platform.isIOS) {
-      final appDir = await getApplicationDocumentsDirectory();
-      return appDir.path;
-    }
-    String? selectedDirectory = await FilePicker.getDirectoryPath();
-    if (Platform.isAndroid) {
-      final status = await Permission.manageExternalStorage.request();
-      if (!status.isGranted) {
-        throw "Please allow storage permission to access files";
-      }
-    }
-    if (selectedDirectory != null) {
-      await setSelectedDirectory(selectedDirectory);
-    }
-    return selectedDirectory;
-  }
-
+  // MIX 集成：笔记库根固定为 documents/notes，与 agent 的 notes_* 工具共用
+  // 同一目录。不允许改成任意目录，否则 agent 写的笔记 UI 看不到、
+  // UI 编辑的笔记 agent 读不到——两个软件彻底分叉。
   static Future<void> setSelectedDirectory(String dirPath) async {
-    _selectedDirectory = dirPath;
-    final dir = Directory(_selectedDirectory!);
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-
-    App.localStorage.setString(_prefKey, dirPath);
+    _selectedDirectory = null;
+    await selectedDirectory;
   }
 
   static Future<String?> get selectedDirectory async {
     if (_selectedDirectory == null) {
-      _selectedDirectory = App.localStorage.getString(_prefKey);
-      if (_selectedDirectory == null) {
-        final appDir = await getApplicationDocumentsDirectory();
-        return _selectedDirectory = appDir.path;
-      }
-      final dir = Directory(_selectedDirectory!);
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
-      }
+      final docs = (await getApplicationDocumentsDirectory()).path;
+      _selectedDirectory = notesRootPath(docs);
+      await Directory(_selectedDirectory!).create(recursive: true);
     }
     return _selectedDirectory;
   }
@@ -87,7 +60,9 @@ class DataPath {
       final openedAt = entry['openedAt'] as int;
       final path = entry['path'] as String;
 
-      final isRecent = (now - openedAt) <= within.inMicroseconds;
+      // openedAt 是毫秒时间戳，对比也要用毫秒；原用 inMicroseconds 会把
+      // "最近"窗口放大 1000 倍（30 分钟变 21 天）。
+      final isRecent = (now - openedAt) <= within.inMilliseconds;
       final exists = File(path).existsSync();
 
       if (isRecent && exists) {

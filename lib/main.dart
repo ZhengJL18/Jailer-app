@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'printnotes/app.dart';
 import 'printnotes/providers/customization_provider.dart'
@@ -18,6 +19,7 @@ import 'printnotes/providers/selecting_provider.dart' as printnotes;
 import 'printnotes/providers/settings_provider.dart' as printnotes;
 import 'printnotes/providers/theme_provider.dart' as printnotes;
 import 'printnotes/ui/screens/home/main_screen.dart' as printnotes;
+import 'printnotes/ui/screens/editors/notes/note_editor.dart' as printnotes;
 
 import 'agent/agent.dart';
 import 'agent/company.dart';
@@ -32,8 +34,8 @@ import 'refine/prompt_notes_store.dart';
 import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
 import 'screens/file_browser_screen.dart';
-import 'screens/github_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/theme_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
@@ -77,6 +79,9 @@ void main() async {
 /// 对话历史页「继续聊天」回调：切换 ChatScreen 到指定会话。
 /// 由 ChatScreen 注册，HistoryScreen 调用。
 Future<void> Function(String sessionId)? resumeSessionHandler;
+
+/// 「检查更新」回调：由 ChatScreen 注册，设置页调用。
+Future<void> Function()? checkUpdateHandler;
 
 class MIXApp extends StatelessWidget {
   const MIXApp({super.key});
@@ -285,6 +290,27 @@ class _ChatScreenState extends State<ChatScreen> {
   MemoryManager? _memory;
   SessionDB? _sessionDb;
   String? _currentSessionId;
+  // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
+  int _loadGen = 0;
+  static const _lastSessionKey = 'last_session_id';
+
+  /// 读取上次活动会话 id（无则 'main'），跨重启恢复到它而不是写死 'main'。
+  Future<String> _loadLastSessionId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_lastSessionKey) ?? 'main';
+    } catch (_) {
+      return 'main';
+    }
+  }
+
+  /// 记录当前活动会话（新建/切换/恢复时写，fire-and-forget 不阻塞 UI）。
+  Future<void> _saveLastSessionId(String id) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_lastSessionKey, id);
+    } catch (_) {}
+  }
   // 自进化（Continual Harness）存储。
   TrajectoryStore? _trajectory;
   PromptNotesStore? _promptNotes;
@@ -294,14 +320,23 @@ class _ChatScreenState extends State<ChatScreen> {
   // 学习模式。
   StudyEngine? _studyEngine;
   StudyQuestionService? _studyQuestionService;
-  final Map<int, String> _studyChoices = {}; // question_id → 用户选项。
+  final Map<String, String> _studyChoices = {}; // 题 key → 用户选项（key 兼容无 question_id 的题）。
 
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
     _activeAgent?.cancel();
   }
 
-  @override
+  /// 深链：打开 agent 刚写入的笔记（复用 printnotes 编辑器）。
+  void _openNote(String? notePath) {
+    if (notePath == null || notePath.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => printnotes.NoteEditorScreen(fileUri: File(notePath).uri),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _scrollController.dispose();
@@ -362,6 +397,8 @@ class _ChatScreenState extends State<ChatScreen> {
     studyQuestionHandler = _studyQuestion;
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
+    // 设置页「检查更新」→ 复用聊天页的检查逻辑。
+    checkUpdateHandler = _checkForUpdateManually;
     final init = _initCwd();
     // 会话库就绪后，把当前会话历史恢复进 UI（重启 App 不再空白丢上下文）。
     init.then((_) {
@@ -465,23 +502,35 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 从对话历史切回某个会话继续聊：切换 sessionId + 加载历史到 UI。
   Future<void> _resumeSession(String sessionId) async {
     if (!mounted) return;
+    // 生成中途切换会话：先停掉在跑的 agent，防止它往新会话流式写。
+    if (_running) {
+      _activeAgent?.cancel();
+      _running = false;
+    }
+    unawaited(_saveLastSessionId(sessionId));
     setState(() {
       _messages.clear();
       _toolRunningIdx.clear();
       _reasoningMsgIdx = -1;
       _currentSessionId = sessionId;
+      _pendingPlan = null;
+      _pendingTask = null;
     });
     await _loadMessagesToUi(sessionId);
   }
 
   /// 从会话库把 [sessionId] 的历史加载进 UI（重启/切换会话复用）。
+  ///
+  /// 用代际令牌 [_loadGen] 丢弃过期加载结果：并发调用时（如启动加载与
+  /// 「继续聊天」同时进行）只有最后一次加载生效，避免串到别的会话。
   Future<void> _loadMessagesToUi(String sessionId) async {
     final sdb = _sessionDb;
     if (sdb == null) return;
     if (!mounted) return;
+    final gen = ++_loadGen;
     try {
       final stored = await sdb.getMessages(sessionId);
-      if (!mounted) return;
+      if (!mounted || gen != _loadGen) return;
       setState(() {
         _messages.clear();
         _toolRunningIdx.clear();
@@ -512,8 +561,11 @@ class _ChatScreenState extends State<ChatScreen> {
     final newId = 's${DateTime.now().millisecondsSinceEpoch}';
     try {
       await sdb.createSession(newId, source: 'app');
+      unawaited(_saveLastSessionId(newId));
     } catch (_) {}
     if (!mounted) return;
+    // 作废任何在途的历史加载，防止旧会话内容写入新会话（防串号）。
+    ++_loadGen;
     setState(() {
       _messages.clear();
       _toolRunningIdx.clear();
@@ -687,6 +739,10 @@ class _ChatScreenState extends State<ChatScreen> {
             } else {
               _messages.add(_ChatMessage.tool(name, status));
             }
+            // notes_write 完成后追加「打开笔记」卡片，深链到笔记编辑器。
+            if (name == 'notes_write' && lastWrittenNotePath != null) {
+              _messages.add(_ChatMessage.tool('notes_open', 'done'));
+            }
           }
         });
       },
@@ -835,9 +891,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// 点选题卡后触发 agent 讲解（合成 user turn，不在输入框显示）。
-  void _onStudyAnswer(int qid, String letter, String answer, bool correct) {
+  /// [qid] 为 null 表示题目没带 question_id（LLM 复述丢失），仍触发讲解。
+  void _onStudyAnswer(int? qid, String letter, String answer, bool correct) {
     if (_running) return;
-    final msg = '我刚答了题目#$qid，选了 $letter，'
+    final label = qid != null ? '题目#$qid' : '刚答的那道题';
+    final msg = '我刚答了$label，选了 $letter，'
         '${correct ? "对了" : "正确答案是 $answer，我答错了"}。'
         '请讲解这道题（为什么对、干扰项为什么错），然后提议下一题。';
     unawaited(_runTaskWithFullTools(msg));
@@ -1178,8 +1236,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _sessionDb = SessionDB(dbPath: '$dir/state.db');
       await _sessionDb!.init();
       sessionDb = _sessionDb;
-      // 固定会话 id：跨重启恢复同一会话历史（不累积孤儿会话）。
-      _currentSessionId = 'main';
+      // 恢复到上次活动的会话（无则 'main'）。createSession 对已存在会话
+      // 保留原 started_at，不会把旧会话刷新成"刚刚"顶置历史页。
+      _currentSessionId = await _loadLastSessionId();
       await _sessionDb!.createSession(_currentSessionId!, source: 'app');
     } catch (_) {}
     // skill 系统。
@@ -1351,23 +1410,21 @@ class _ChatScreenState extends State<ChatScreen> {
                   _newSession();
                 case 'plan':
                   setState(() => _planMode = !_planMode);
-                case 'github':
+                case 'theme':
                   Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const GitHubScreen()),
-                  );
-                case 'settings':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => SettingsScreen()),
-                  );
-                case 'check_update':
-                  _checkForUpdateManually();
-                case 'files':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
+                    MaterialPageRoute(builder: (_) => const ThemeScreen()),
                   );
                 case 'notes':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const printnotes.MainPage()),
+                  );
+                case 'files':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
+                  );
+                case 'settings':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => SettingsScreen()),
                   );
               }
             },
@@ -1397,32 +1454,22 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               PopupMenuDivider(),
               PopupMenuItem(
-                value: 'github',
+                value: 'notes',
                 child: Row(
                   children: [
-                    Icon(Icons.code, size: 18, color: context.appPalette.textSecondary),
+                    Icon(Icons.menu_book_outlined, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
-                    Text('GitHub'),
+                    Text('笔记库'),
                   ],
                 ),
               ),
               PopupMenuItem(
-                value: 'settings',
+                value: 'theme',
                 child: Row(
                   children: [
-                    Icon(Icons.settings, size: 18, color: context.appPalette.textSecondary),
+                    Icon(Icons.palette_outlined, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
-                    Text('设置'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'check_update',
-                child: Row(
-                  children: [
-                    Icon(Icons.system_update_alt, size: 18, color: context.appPalette.textSecondary),
-                    SizedBox(width: 8),
-                    Text('检查更新'),
+                    Text('主题'),
                   ],
                 ),
               ),
@@ -1436,13 +1483,14 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
+              PopupMenuDivider(),
               PopupMenuItem(
-                value: 'notes',
+                value: 'settings',
                 child: Row(
                   children: [
-                    Icon(Icons.menu_book_outlined, size: 18, color: context.appPalette.textSecondary),
+                    Icon(Icons.settings, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
-                    Text('笔记库'),
+                    Text('设置'),
                   ],
                 ),
               ),
@@ -1520,33 +1568,50 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 自进化建议卡（Continual Harness /refine 的 UI）。
   /// 从 assistant 文本中提取题卡 JSON（agent 以 ```json 输出题目）。
   /// 返回 null 表示非题目。
+  ///
+  /// 按 ```json 围栏逐块解析：块内取第一 { 到最后一个 }（explanation 里
+  /// 可能含 }），第一条消息有多个围栏时逐块尝试，返回首个有效题目。
   Map<String, dynamic>? _extractQuestionJson(String text) {
-    // 匹配 ```json { ... } ``` 块。
-    final m = RegExp(r'```json\s*(\{.*?\})\s*```', dotAll: true).firstMatch(text);
-    final candidate = (m != null ? m.group(1) : null) ?? text;
-    final start = candidate.indexOf('{');
-    final end = candidate.lastIndexOf('}');
-    if (start < 0 || end <= start) return null;
-    try {
-      final decoded = jsonDecode(candidate.substring(start, end + 1));
-      if (decoded is! Map<String, dynamic>) return null;
-      // 必须是题目结构（有 question + options）。
-      if (decoded['question'] is String &&
-          decoded['options'] is List &&
-          (decoded['options'] as List).length == 4) {
-        return decoded;
-      }
-    } catch (_) {}
+    final re = RegExp(r'```json(.*?)```', dotAll: true);
+    for (final m in re.allMatches(text)) {
+      final block = m.group(1) ?? '';
+      final start = block.indexOf('{');
+      final end = block.lastIndexOf('}');
+      if (start < 0 || end <= start) continue;
+      try {
+        final decoded = jsonDecode(block.substring(start, end + 1));
+        if (decoded is! Map<String, dynamic>) continue;
+        // 必须是题目结构（有 question + 4 个 options）。
+        if (decoded['question'] is String &&
+            decoded['options'] is List &&
+            (decoded['options'] as List).length == 4) {
+          return decoded;
+        }
+      } catch (_) {}
+    }
     return null;
+  }
+
+  /// 归一化答案字母：容忍 'a' / 'A.' / 'A)' / 'A、' 等，取 A-D 首字母。
+  String _normalizeAnswer(dynamic a) {
+    if (a is! String) return '';
+    final s = a.trim().toUpperCase();
+    final m = RegExp(r'^[A-D]').firstMatch(s);
+    return m?.group(0) ?? s;
   }
 
   /// 渲染题目卡（选项按钮 + 机械判）。
   Widget _buildStudyCard(Map<String, dynamic> q) {
     final options = (q['options'] as List).cast<String>();
-    final answer = (q['answer'] as String? ?? '').toUpperCase();
+    final answer = _normalizeAnswer(q['answer']);
     final qid = q['question_id'];
+    // 题 key：有 question_id 用它，否则用题干哈希（LLM 复述可能丢 id）。
+    final qkey = qid != null
+        ? qid.toString()
+        : 'q_${(q['question'] as String? ?? '').hashCode}';
+    final realQid = qid is int ? qid as int : null;
     // 检查是否已作答。
-    final answeredChoice = qid is int ? _studyChoices[qid] : null;
+    final answeredChoice = _studyChoices[qkey];
     final answered = answeredChoice != null;
     final isCorrect = answered && answeredChoice == answer;
     final optLetters = ['A', 'B', 'C', 'D'];
@@ -1568,7 +1633,8 @@ class _ChatScreenState extends State<ChatScreen> {
           const SizedBox(height: 10),
           for (var i = 0; i < options.length; i++) ...[
             _buildOptionButton(
-                optLetters[i], options[i], answer, answered, answeredChoice, qid),
+                optLetters[i], options[i], answer, answered, answeredChoice,
+                qkey, realQid),
             const SizedBox(height: 6),
           ],
           if (answered) ...[
@@ -1593,7 +1659,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildOptionButton(
       String letter, String option, String answer,
-      bool answered, String? userChoice, dynamic qid) {
+      bool answered, String? userChoice, String qkey, int? realQid) {
     final isAnswer = letter == answer;
     final isChosen = letter == userChoice;
     final Color bg;
@@ -1610,37 +1676,50 @@ class _ChatScreenState extends State<ChatScreen> {
       onTap: answered
           ? null
           : () {
-              if (qid is int) {
-                setState(() => _studyChoices[qid] = letter);
-                final correct = letter == answer;
+              // 无论是否有 question_id 都记录 UI 选择（修复"按了选不了"）。
+              setState(() => _studyChoices[qkey] = letter);
+              final correct = letter == answer;
+              if (realQid != null) {
                 // 机械判 + 落库练习记录（零 LLM）。
                 final engine = _studyEngine;
                 if (engine != null) {
                   unawaited(engine.recordAnswer(
-                    questionId: qid,
+                    questionId: realQid,
                     correct: correct,
                   ));
                 }
-                // 点选后触发 agent 讲解这题（合成 user turn，agent 在 study
-                // workflow 下流式讲解 + 提议下一题）。
-                _onStudyAnswer(qid, letter, answer, correct);
               }
+              // 点选后触发 agent 讲解这题（合成 user turn，agent 在 study
+              // workflow 下流式讲解 + 提议下一题）。
+              _onStudyAnswer(realQid, letter, answer, correct);
             },
       borderRadius: BorderRadius.circular(8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
-            Text('$letter. ',
-                style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: isAnswer && answered
-                        ? Theme.of(context).colorScheme.primary
-                        : null)),
+            Container(
+              width: 26,
+              height: 26,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isChosen || (isAnswer && answered)
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(letter,
+                  style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: isChosen || (isAnswer && answered)
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : Theme.of(context).colorScheme.onSurface)),
+            ),
+            const SizedBox(width: 10),
             Expanded(child: Text(option)),
           ],
         ),
@@ -1950,6 +2029,33 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ],
+            ),
+          );
+        }
+        // agent 写入笔记后的「打开笔记」深链卡。
+        if (m.toolName == 'notes_open') {
+          final notePath = lastWrittenNotePath;
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border.all(color: context.appPalette.primary, width: 1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.open_in_new,
+                  size: 18, color: context.appPalette.primary),
+              title: const Text('已写入笔记库'),
+              subtitle: Text(
+                notePath == null
+                    ? '打开笔记库'
+                    : p.basename(notePath),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: const Icon(Icons.chevron_right, size: 18),
+              onTap: () => _openNote(notePath),
             ),
           );
         }

@@ -31,17 +31,7 @@ class CodeblockThemePage extends StatelessWidget {
         child: Column(
           children: [
             ListTile(
-              title: Text('Switch Theme Mode:'),
-              trailing: Switch(
-                  value: Theme.of(context).brightness == Brightness.dark,
-                  onChanged: (value) {
-                    context
-                        .read<ThemeProvider>()
-                        .setThemeMode(value ? 'dark' : 'light');
-                  }),
-            ),
-            ListTile(
-              title: Text('Code Themes:'),
+              title: Text('代码高亮主题:'),
               trailing: DropdownButton(
                 value: context.watch<ThemeProvider>().codeHighlight,
                 items: [

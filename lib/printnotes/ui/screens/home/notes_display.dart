@@ -19,17 +19,18 @@ import 'package:mix/printnotes/ui/screens/layout/tree_view.dart';
 
 import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
 import 'package:mix/printnotes/ui/components/drawer_rail.dart';
+import 'package:mix/printnotes/ui/components/search_view.dart';
 import 'package:mix/printnotes/ui/widgets/speed_dial_fab.dart';
 
 class NotesDisplay extends StatefulWidget {
   const NotesDisplay({
     super.key,
-    required this.updateCanPop,
     required this.onReload,
+    this.drawer,
   });
 
-  final VoidCallback updateCanPop;
   final Function(VoidCallback) onReload;
+  final Widget? drawer;
 
   @override
   State<NotesDisplay> createState() => _NotesDisplayState();
@@ -39,13 +40,18 @@ class _NotesDisplayState extends State<NotesDisplay> {
   String? _sharedFilePath;
 
   bool _isLoading = false;
+  // 搜索态：顶栏唯一（MIX 集成后 MainScaffold 移除，搜索并入本页）。
+  bool _isSearching = false;
+  TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce; // 输入防抖，避免每键全库重扫。
 
   @override
   void initState() {
     super.initState();
     if (Platform.isAndroid) _checkMediaIntent();
     _loadItems();
-    // widget.onReload(_loadItems);
+    // 注册刷新回调给抽屉（全部笔记/最近打开/标签切换时触发 _loadItems）。
+    widget.onReload(_loadItems);
   }
 
   Future<void> _loadItems() async {
@@ -82,6 +88,95 @@ class _NotesDisplayState extends State<NotesDisplay> {
         const Duration(milliseconds: 300), () async => await _loadItems());
   }
 
+  /// 更多菜单：布局 / 排序 / 文件夹置顶（原 MainScaffold 顶部菜单，合并后归属本页）。
+  Widget _buildMoreMenu(BuildContext context) {
+    final curLayout = context.watch<SettingsProvider>().layout;
+    final curSort = context.watch<SettingsProvider>().sortOrder;
+    final curFolderPriority = context.watch<SettingsProvider>().folderPriority;
+    return PopupMenuButton(
+      tooltip: '更多',
+      icon: const Icon(Icons.more_vert),
+      enabled: !_isSearching,
+      itemBuilder: (context) => <PopupMenuEntry>[
+        PopupMenuItem(
+          child: PopupMenuButton(
+            onSelected: (value) {
+              context.read<SettingsProvider>().setLayout(value);
+              context.read<SelectingProvider>().setSelectingMode(mode: false);
+              Navigator.pop(context);
+            },
+            itemBuilder: (context) => [
+              CheckedPopupMenuItem(
+                  value: 'grid', checked: curLayout == 'grid',
+                  child: const Text('网格视图')),
+              CheckedPopupMenuItem(
+                  value: 'list', checked: curLayout == 'list',
+                  child: const Text('列表视图')),
+              CheckedPopupMenuItem(
+                  value: 'tree', checked: curLayout == 'tree',
+                  child: const Text('树状视图')),
+            ],
+            child: const ListTile(
+                leading: Icon(Icons.grid_view), title: Text('布局')),
+          ),
+        ),
+        PopupMenuItem(
+          enabled: !context.read<SelectingProvider>().selectingMode,
+          child: PopupMenuButton(
+            onSelected: (value) {
+              context.read<SettingsProvider>().setSortOrder(value);
+              Navigator.pop(context);
+            },
+            enabled: !context.read<SelectingProvider>().selectingMode,
+            itemBuilder: (context) => [
+              CheckedPopupMenuItem(
+                  value: 'default', checked: curSort == 'default',
+                  child: const Text('默认排序')),
+              CheckedPopupMenuItem(
+                  value: 'titleAsc', checked: curSort == 'titleAsc',
+                  child: const Text('标题 (升序)')),
+              CheckedPopupMenuItem(
+                  value: 'titleDsc', checked: curSort == 'titleDsc',
+                  child: const Text('标题 (降序)')),
+              CheckedPopupMenuItem(
+                  value: 'lastModAsc', checked: curSort == 'lastModAsc',
+                  child: const Text('修改 (升序)')),
+              CheckedPopupMenuItem(
+                  value: 'lastModDsc', checked: curSort == 'lastModDsc',
+                  child: const Text('修改 (降序)')),
+            ],
+            child: const ListTile(
+                leading: Icon(Icons.sort), title: Text('排序')),
+          ),
+        ),
+        PopupMenuItem(
+          enabled: !context.read<SelectingProvider>().selectingMode,
+          child: PopupMenuButton(
+            onSelected: (value) {
+              context.read<SettingsProvider>().setFolderPriority(value);
+              Navigator.pop(context);
+            },
+            enabled: !context.read<SelectingProvider>().selectingMode,
+            itemBuilder: (context) => [
+              CheckedPopupMenuItem(
+                  value: 'above', checked: curFolderPriority == 'above',
+                  child: const Text('文件夹在上')),
+              CheckedPopupMenuItem(
+                  value: 'none', checked: curFolderPriority == 'none',
+                  child: const Text('不置顶')),
+              CheckedPopupMenuItem(
+                  value: 'below', checked: curFolderPriority == 'below',
+                  child: const Text('文件夹在下')),
+            ],
+            child: const ListTile(
+                leading: Icon(Icons.folder_copy_outlined),
+                title: Text('文件夹置顶')),
+          ),
+        ),
+      ],
+    );
+  }
+
   List<Uri> selectedItemsToFileEntity() {
     return context
         .read<SelectingProvider>()
@@ -98,6 +193,8 @@ class _NotesDisplayState extends State<NotesDisplay> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -132,30 +229,77 @@ class _NotesDisplayState extends State<NotesDisplay> {
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
 
+        // 搜索态：系统返回 = 退出搜索，而不是导航/退出笔记页。
+        if (_isSearching) {
+          setState(() {
+            _isSearching = false;
+            _searchController.clear();
+          });
+          return;
+        }
+        // 嵌入 MIX：根目录返回 = 回到聊天页，而不是弹退出框杀整个 App。
         if (routeHistory.length > 1) {
           _navBack();
         } else {
-          widget.updateCanPop();
+          Navigator.of(context).pop();
         }
       },
       child: Scaffold(
+        drawer: widget.drawer,
         appBar: AppBarDragWrapper(
           child: AppBar(
             backgroundColor: Theme.of(context).colorScheme.primary,
             foregroundColor: Theme.of(context).colorScheme.onPrimary,
             centerTitle: true,
-            title: Text(currentFolderName),
-            leading: context.watch<SelectingProvider>().selectingMode
+            title: _isSearching
+                ? TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.onPrimary),
+                    decoration: InputDecoration(
+                      hintText: '搜索笔记…',
+                      hintStyle: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onPrimary
+                              .withValues(alpha: 0.7)),
+                      border: InputBorder.none,
+                    ),
+                    onChanged: (_) {
+                      _searchDebounce?.cancel();
+                      _searchDebounce = Timer(
+                          const Duration(milliseconds: 250),
+                          () => setState(() {}));
+                    },
+                  )
+                : Text(currentFolderName),
+            leading: _isSearching
                 ? IconButton(
-                    onPressed: () =>
-                        context.read<SelectingProvider>().setSelectingMode(),
-                    icon: const Icon(Icons.close))
-                : routeHistory.length > 1
+                    tooltip: '关闭搜索',
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      setState(() {
+                        _isSearching = false;
+                        _searchController.clear();
+                      });
+                    },
+                  )
+                : context.watch<SelectingProvider>().selectingMode
                     ? IconButton(
-                        icon: const Icon(Icons.arrow_back),
-                        onPressed: _navBack,
-                      )
-                    : null, //Icon(Icons.home),
+                        onPressed: () =>
+                            context.read<SelectingProvider>().setSelectingMode(),
+                        icon: const Icon(Icons.close))
+                    : routeHistory.length > 1
+                        ? IconButton(
+                            icon: const Icon(Icons.arrow_back),
+                            onPressed: _navBack,
+                          )
+                        : IconButton(
+                            icon: const Icon(Icons.arrow_back),
+                            tooltip: '返回聊天',
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
             actions: context.watch<SelectingProvider>().selectingMode
                 ? [
                     IconButton(
@@ -202,16 +346,32 @@ class _NotesDisplayState extends State<NotesDisplay> {
                       icon: const Icon(Icons.refresh),
                       onPressed: _refreshPage,
                     ),
+                    IconButton(
+                      tooltip: _isSearching ? '关闭搜索' : '搜索笔记',
+                      icon: Icon(_isSearching ? Icons.close : Icons.search),
+                      onPressed: () {
+                        context
+                            .read<SelectingProvider>()
+                            .setSelectingMode(mode: false);
+                        setState(() {
+                          _isSearching = !_isSearching;
+                          if (!_isSearching) _searchController.clear();
+                        });
+                      },
+                    ),
+                    _buildMoreMenu(context),
                   ],
           ),
         ),
-        body: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : items.isEmpty
-                ? const Center(
-                    child: Text('Nothing here!'),
-                  )
-                : RefreshIndicator(
+        body: _isSearching
+            ? SearchView(searchQuery: _searchController.text)
+            : _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : items.isEmpty
+                    ? const Center(
+                        child: Text('Nothing here!'),
+                      )
+                    : RefreshIndicator(
                     onRefresh: _refreshPage,
                     child: isScreenLarge
                         ? Row(
@@ -246,11 +406,13 @@ class _NotesDisplayState extends State<NotesDisplay> {
                                 : null,
                             child: layoutView),
                   ),
-        floatingActionButton: speedDialFAB(
-            context,
-            currentPath.isNotEmpty
-                ? currentPath
-                : context.read<SettingsProvider>().mainDir),
+        floatingActionButton: _isSearching
+            ? null
+            : speedDialFAB(
+                context,
+                currentPath.isNotEmpty
+                    ? currentPath
+                    : context.read<SettingsProvider>().mainDir),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
     );

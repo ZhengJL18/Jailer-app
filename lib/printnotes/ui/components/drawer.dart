@@ -4,11 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:mix/printnotes/providers/navigation_provider.dart';
 import 'package:mix/printnotes/providers/settings_provider.dart';
 
-import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
-
 import 'package:mix/printnotes/ui/screens/trash_archive_screens.dart';
-import 'package:mix/printnotes/ui/screens/settings/settings_screen.dart';
-import 'package:mix/printnotes/ui/screens/about/about_screen.dart';
 
 import 'package:mix/printnotes/constants/constants.dart';
 
@@ -52,15 +48,16 @@ class DrawerView extends StatelessWidget {
                             top: MediaQuery.paddingOf(context).top)),
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.fastOutSlowIn,
-                    child: Image.asset(
-                      "assets/app_icon_no-bg.png",
-                      height: 48,
+                    child: Icon(
+                      Icons.menu_book_rounded,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.onPrimary,
                     ),
                   ),
                 ),
                 ListTile(
                     leading: const Icon(Icons.article_outlined),
-                    title: const Text('All Notes'),
+                    title: const Text('全部笔记'),
                     onTap: () {
                       _navigateToScreen(context,
                           path: context.read<SettingsProvider>().mainDir);
@@ -68,14 +65,14 @@ class DrawerView extends StatelessWidget {
                     }),
                 ListTile(
                     leading: const Icon(Icons.history),
-                    title: Text('Recent'),
+                    title: Text('最近打开'),
                     onTap: () {
                       _navigateToScreen(context, path: '⏱');
                       reload();
                     }),
                 ExpansionTile(
                   leading: Icon(Icons.tag),
-                  title: Text('Tags'),
+                  title: Text('标签'),
                   collapsedIconColor: Theme.of(context).colorScheme.secondary,
                   children: context.watch<SettingsProvider>().tagList.isNotEmpty
                       ? context
@@ -92,7 +89,7 @@ class DrawerView extends StatelessWidget {
                           .toList()
                       : [
                           ListTile(
-                            title: Text('You don\'t have any tags'),
+                            title: Text('还没有标签'),
                           ),
                         ],
                   onExpansionChanged: (expanded) {
@@ -102,7 +99,7 @@ class DrawerView extends StatelessWidget {
                 const Opacity(opacity: 0.2, child: Divider()),
                 ListTile(
                   leading: const Icon(Icons.archive_outlined),
-                  title: const Text('Archive'),
+                  title: const Text('归档'),
                   onTap: () => _navigateToScreen(context,
                       path: context.read<SettingsProvider>().archivePath,
                       screen: const TrashArchiveScreen(
@@ -111,7 +108,7 @@ class DrawerView extends StatelessWidget {
                 ),
                 ListTile(
                   leading: const Icon(Icons.delete_outlined),
-                  title: const Text('Trash'),
+                  title: const Text('回收站'),
                   onTap: () => _navigateToScreen(context,
                       path: context.read<SettingsProvider>().trashPath,
                       screen: const TrashArchiveScreen(
@@ -120,23 +117,9 @@ class DrawerView extends StatelessWidget {
                 ),
                 const Opacity(opacity: 0.2, child: Divider()),
                 ListTile(
-                  leading: const Icon(Icons.settings_outlined),
-                  title: const Text('Settings'),
-                  onTap: () => _navigateToScreen(context,
-                      screen: const SettingsScreen()),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.info_outlined),
-                  title: const Text('About'),
-                  onTap: () =>
-                      _navigateToScreen(context, screen: const AboutScreen()),
-                ),
-                ListTile(
-                    leading: const Icon(Icons.help_outline),
-                    title: const Text('Wiki'),
-                    trailing: const Icon(Icons.launch_rounded),
-                    onTap: () => urlHandler(context,
-                        'https://github.com/RoBoT095/printnotes/wiki')),
+                    leading: const Icon(Icons.menu_book),
+                    title: const Text('返回聊天'),
+                    onTap: () => Navigator.of(context).pop()),
               ],
             ),
           ),

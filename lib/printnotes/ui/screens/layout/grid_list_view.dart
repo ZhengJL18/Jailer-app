@@ -52,11 +52,11 @@ class _GridListViewState extends State<GridListView> {
   }
 
   int _displayGridCount(BuildContext context, String layout) {
-    double displayWidth = MediaQuery.sizeOf(context).width;
-    return layout == 'list'
-        ? 1
-        : displayWidth > 1200
-            ? 4
-            : 2;
+    final w = MediaQuery.sizeOf(context).width;
+    if (layout == 'list') return 1;
+    // 按宽度自适应列数：手机 2 列，平板/横屏 3 列，宽屏 4 列。
+    if (w >= 1200) return 4;
+    if (w >= 700) return 3;
+    return 2;
   }
 }
