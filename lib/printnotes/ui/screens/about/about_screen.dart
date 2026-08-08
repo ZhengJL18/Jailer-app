@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/centered_page_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/dialogs/libraries_dialog.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/centered_page_wrapper.dart';
+import 'package:mix/printnotes/ui/components/dialogs/libraries_dialog.dart';
 
-import 'package:jailer/printnotes/ui/widgets/menu_tile.dart';
+import 'package:mix/printnotes/ui/widgets/menu_tile.dart';
 
-import 'package:jailer/printnotes/utils/handlers/open_url_link.dart';
+import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
 
-import 'package:jailer/printnotes/constants/constants.dart';
+import 'package:mix/printnotes/constants/constants.dart';
 
 class AboutScreen extends StatelessWidget {
   const AboutScreen({super.key});

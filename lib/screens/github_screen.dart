@@ -470,7 +470,7 @@ class _LocalRepoScreenState extends State<LocalRepoScreen> {
     switch (action) {
       case 'commit':
         result = gitAdd(path: widget.path, files: const ['.']);
-        result += '\n${gitCommit(path: widget.path, message: 'Hermes: auto commit')}';
+        result += '\n${gitCommit(path: widget.path, message: 'MIX: auto commit')}';
       case 'push':
         result = gitPush(path: widget.path, token: creds?.token);
       case 'pull':

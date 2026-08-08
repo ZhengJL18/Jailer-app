@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/skills/skill_discovery.dart';
-import 'package:jailer/skills/skill_parser.dart';
-import 'package:jailer/tools/skills_tool.dart';
+import 'package:mix/skills/skill_discovery.dart';
+import 'package:mix/skills/skill_parser.dart';
+import 'package:mix/tools/skills_tool.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

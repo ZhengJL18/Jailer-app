@@ -1,8 +1,8 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/tools/cron_tools.dart';
-import 'package:jailer/tools/model_tools.dart';
+import 'package:mix/tools/cron_tools.dart';
+import 'package:mix/tools/model_tools.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// cron 调度回归测试。

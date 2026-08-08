@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
-import 'package:jailer/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
 
 class SelectLocationDialog extends StatefulWidget {
   const SelectLocationDialog({

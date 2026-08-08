@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 
-import 'package:jailer/printnotes/ui/widgets/custom_snackbar.dart';
+import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
 bool isMobile() =>
     !Platform.isWindows && !Platform.isLinux && !Platform.isMacOS;

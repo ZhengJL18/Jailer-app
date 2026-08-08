@@ -1,4 +1,4 @@
-import 'package:jailer/printnotes/markdown/rendering/wiki_link.dart';
+import 'package:mix/printnotes/markdown/rendering/wiki_link.dart';
 
 import '../widget/all.dart';
 

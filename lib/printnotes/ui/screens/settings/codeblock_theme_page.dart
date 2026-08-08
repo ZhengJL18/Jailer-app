@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:jailer/printnotes/markdown/markdown_widget/widget/markdown_block.dart';
+import 'package:mix/printnotes/markdown/markdown_widget/widget/markdown_block.dart';
 import 'package:flutter_highlight/theme_map.dart';
 
-import 'package:jailer/printnotes/providers/theme_provider.dart';
-import 'package:jailer/printnotes/markdown/build_markdown.dart';
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/centered_page_wrapper.dart';
+import 'package:mix/printnotes/providers/theme_provider.dart';
+import 'package:mix/printnotes/markdown/build_markdown.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/centered_page_wrapper.dart';
 
 class CodeblockThemePage extends StatelessWidget {
   const CodeblockThemePage({super.key});

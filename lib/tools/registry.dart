@@ -342,7 +342,7 @@ class ToolRegistry {
   /// 不会随调用点/线程/时机漂移）。lambda 和嵌套函数继承定义模块的 globals。
   /// 内置/MCP handler 在插件命名空间之外，返回 null（行为不变）。
   ///
-  /// Dart 适配：无 `__globals__` 反射，恒返回 null（Jailer 无插件覆盖系统）。
+  /// Dart 适配：无 `__globals__` 反射，恒返回 null（MIX 无插件覆盖系统）。
   String? _pluginOwnerOf(ToolHandler handler) => null;
 
   /// 最佳努力获取调用者的模块名（Python 用 `sys._getframe(2)`）。
@@ -722,7 +722,7 @@ final ToolRegistry registry = ToolRegistry();
 // `json.dumps({"error": msg}, ensure_ascii=False)` 样板。
 //
 // 用法：
-//   import 'package:jailer/tools/registry.dart';
+//   import 'package:mix/tools/registry.dart';
 //   return toolError('something went wrong');
 //   return toolError('not found', extra: {'code': 404});
 //   return toolResult({'success': true, 'data': payload});

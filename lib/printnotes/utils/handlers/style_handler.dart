@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
 
 class StyleHandler {
   static Future<String?> uploadBgImage() async {

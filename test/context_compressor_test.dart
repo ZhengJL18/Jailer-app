@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/agent/context_compressor.dart';
+import 'package:mix/agent/context_compressor.dart';
 
 /// 构造长对话。
 List<Map<String, dynamic>> longConversation(int turns) {

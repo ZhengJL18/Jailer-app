@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/selecting_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/selecting_provider.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/search_view.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/search_view.dart';
 
 class MainScaffold extends StatefulWidget {
   const MainScaffold({

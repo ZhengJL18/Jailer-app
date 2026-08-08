@@ -1,4 +1,4 @@
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
 
 class ToolbarConfigItem {
   final String key;

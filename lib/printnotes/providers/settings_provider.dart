@@ -4,12 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/utils/storage_system.dart';
-import 'package:jailer/printnotes/utils/handlers/item_sort.dart';
-import 'package:jailer/printnotes/utils/configs/user_intro.dart';
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
-import 'package:jailer/printnotes/utils/configs/user_preference.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/utils/handlers/item_sort.dart';
+import 'package:mix/printnotes/utils/configs/user_intro.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/utils/configs/user_preference.dart';
 
 class SettingsProvider with ChangeNotifier {
   bool _showIntro = true;

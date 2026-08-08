@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/agent/error_classifier.dart';
-import 'package:jailer/agent/retry_utils.dart';
-import 'package:jailer/llm/openai_llm.dart';
+import 'package:mix/agent/error_classifier.dart';
+import 'package:mix/agent/retry_utils.dart';
+import 'package:mix/llm/openai_llm.dart';
 
 void main() {
   group('classifyApiError', () {

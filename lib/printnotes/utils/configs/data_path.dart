@@ -1,14 +1,14 @@
 import 'dart:io';
 import 'dart:convert';
 
-import 'package:jailer/printnotes/app.dart';
+import 'package:mix/printnotes/app.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import 'package:jailer/printnotes/constants/constants.dart';
-import 'package:jailer/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/constants/constants.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
 
 class DataPath {
   static String? _selectedDirectory;

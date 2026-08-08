@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/tools/file_operations.dart';
-import 'package:jailer/tools/file_safety.dart';
-import 'package:jailer/tools/patch_parser.dart';
+import 'package:mix/tools/file_operations.dart';
+import 'package:mix/tools/file_safety.dart';
+import 'package:mix/tools/patch_parser.dart';
 import 'package:path/path.dart' as p;
 
 void main() {

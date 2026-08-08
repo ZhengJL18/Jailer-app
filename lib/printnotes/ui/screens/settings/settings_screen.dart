@@ -4,25 +4,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/theme_provider.dart';
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/providers/selecting_provider.dart';
+import 'package:mix/printnotes/providers/theme_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/providers/selecting_provider.dart';
 
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
-import 'package:jailer/printnotes/utils/handlers/open_url_link.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/centered_page_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/dialogs/basic_popup.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/centered_page_wrapper.dart';
+import 'package:mix/printnotes/ui/components/dialogs/basic_popup.dart';
 
-import 'package:jailer/printnotes/ui/widgets/menu_tile.dart';
-import 'package:jailer/printnotes/ui/widgets/list_section_title.dart';
-import 'package:jailer/printnotes/ui/widgets/custom_snackbar.dart';
+import 'package:mix/printnotes/ui/widgets/menu_tile.dart';
+import 'package:mix/printnotes/ui/widgets/list_section_title.dart';
+import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
-import 'package:jailer/printnotes/ui/screens/settings/more_design_options_page.dart';
-import 'package:jailer/printnotes/ui/screens/settings/custom_theme_page.dart';
-import 'package:jailer/printnotes/ui/screens/settings/codeblock_theme_page.dart';
+import 'package:mix/printnotes/ui/screens/settings/more_design_options_page.dart';
+import 'package:mix/printnotes/ui/screens/settings/custom_theme_page.dart';
+import 'package:mix/printnotes/ui/screens/settings/codeblock_theme_page.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});

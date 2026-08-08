@@ -75,10 +75,10 @@ class MultiAgentService {
 
   bool get _cancelled => isCancelled?.call() ?? false;
 
-  /// 子代理：独立 JailerAgent 执行任务，工具事件转发 UI。
+  /// 子代理：独立 MIXAgent 执行任务，工具事件转发 UI。
   ///
   /// [depth] 当前层数（0=主代理，1=一级子代理…）；子代理可继续 delegate
-  /// 下探（JailerAgent.agentDepth 传递，深度判断不再依赖并行共享全局）。
+  /// 下探（MIXAgent.agentDepth 传递，深度判断不再依赖并行共享全局）。
   Future<String> runSubAgent({
     required String task,
     List<String>? toolsets,
@@ -93,9 +93,9 @@ class MultiAgentService {
     final effectiveToolsets = (toolsets ?? const ['file', 'web', 'git'])
         .where((t) => t != 'company')
         .toList();
-    final subAgent = JailerAgent(
+    final subAgent = MIXAgent(
       llm: effectiveLlm,
-      systemPrompt: '你是 Hermes 的第 $depth 层子代理。独立完成给定任务并'
+      systemPrompt: '你是 MIX 的第 $depth 层子代理。独立完成给定任务并'
           '简洁汇报结果。任务太复杂时，可继续 delegate_task 派给更下层的'
           '子代理。用中文。',
       toolDefinitionsProvider: () => getToolDefinitions(
@@ -118,7 +118,7 @@ class MultiAgentService {
   /// 部门执行器（公司模式）：角色讨论 → 角色分工执行 → 经理汇总。
   ///
   /// 每角色执行独立 try/except（官方 `_run_reference` 失败隔离：一个角色
-  /// 失败不拖垮整部门）；角色 JailerAgent 带 [agentDepth] 且工具事件转发。
+  /// 失败不拖垮整部门）；角色 MIXAgent 带 [agentDepth] 且工具事件转发。
   Future<String> runDepartment({
     required String department,
     required String task,
@@ -163,7 +163,7 @@ class MultiAgentService {
       dep.roles.map((role) async {
         if (_cancelled) return '「$role」：（已取消）';
         try {
-          final roleAgent = JailerAgent(
+          final roleAgent = MIXAgent(
             llm: llm,
             systemPrompt: '你是「${dep.name}」的$role。参考团队讨论，完成你的'
                 '分工工作。可调用工具。用中文。',

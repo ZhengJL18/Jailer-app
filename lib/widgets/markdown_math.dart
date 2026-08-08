@@ -8,11 +8,11 @@ import 'package:flutter/material.dart';
 
 import '../printnotes/markdown/build_markdown.dart';
 
-class HermesMarkdown extends StatelessWidget {
+class MIXMarkdown extends StatelessWidget {
   final String data;
   final bool selectable;
 
-  const HermesMarkdown({
+  const MIXMarkdown({
     super.key,
     required this.data,
     this.selectable = true,

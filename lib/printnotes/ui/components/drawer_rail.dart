@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
 
-import 'package:jailer/printnotes/utils/handlers/open_url_link.dart';
+import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
 
-import 'package:jailer/printnotes/ui/screens/trash_archive_screens.dart';
-import 'package:jailer/printnotes/ui/screens/settings/settings_screen.dart';
-import 'package:jailer/printnotes/ui/screens/about/about_screen.dart';
+import 'package:mix/printnotes/ui/screens/trash_archive_screens.dart';
+import 'package:mix/printnotes/ui/screens/settings/settings_screen.dart';
+import 'package:mix/printnotes/ui/screens/about/about_screen.dart';
 
 class DrawerRailView extends StatelessWidget {
   const DrawerRailView({super.key, required this.reload});

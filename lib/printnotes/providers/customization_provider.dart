@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:jailer/printnotes/utils/configs/user_preference.dart';
+import 'package:mix/printnotes/utils/configs/user_preference.dart';
 
 class CustomizationProvider with ChangeNotifier {
   String? _bgImgPath;

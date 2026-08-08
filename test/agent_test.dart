@@ -12,10 +12,10 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:jailer/agent/agent.dart';
-import 'package:jailer/agent/iteration_budget.dart';
-import 'package:jailer/llm/openai_llm.dart';
-import 'package:jailer/tools/file_tools.dart';
+import 'package:mix/agent/agent.dart';
+import 'package:mix/agent/iteration_budget.dart';
+import 'package:mix/llm/openai_llm.dart';
+import 'package:mix/tools/file_tools.dart';
 import 'package:path/path.dart' as p;
 
 String sse(Map<String, dynamic> chunk) => 'data: ${jsonEncode(chunk)}';
@@ -124,9 +124,9 @@ void main() {
       );
 
       final toolEvents = <String>[];
-      final agent = JailerAgent(
+      final agent = MIXAgent(
         llm: llm,
-        systemPrompt: 'You are Jailer, an Android agent.',
+        systemPrompt: 'You are MIX, an Android agent.',
         onToolEvent: (name, status) => toolEvents.add('$name:$status'),
       );
 
@@ -178,9 +178,9 @@ void main() {
         ),
         client: script,
       );
-      final agent = JailerAgent(
+      final agent = MIXAgent(
         llm: llm,
-        systemPrompt: 'You are Jailer.',
+        systemPrompt: 'You are MIX.',
       );
       final result = await agent.runConversation('Hello');
       expect(result.completed, isTrue);
@@ -204,9 +204,9 @@ void main() {
         ),
         client: script,
       );
-      final agent = JailerAgent(
+      final agent = MIXAgent(
         llm: llm,
-        systemPrompt: 'You are Jailer.',
+        systemPrompt: 'You are MIX.',
         maxIterations: 3,
       );
       final result = await agent.runConversation('Loop forever');
@@ -228,9 +228,9 @@ void main() {
         ),
         client: script,
       );
-      final agent = JailerAgent(
+      final agent = MIXAgent(
         llm: llm,
-        systemPrompt: 'You are Jailer.',
+        systemPrompt: 'You are MIX.',
       );
       // 坏参数 → write_file 缺 path → 返回错误 JSON，agent 继续。
       final result = await agent.runConversation('write something');
@@ -255,9 +255,9 @@ void main() {
         ),
         client: script,
       );
-      final agent = JailerAgent(
+      final agent = MIXAgent(
         llm: llm,
-        systemPrompt: 'You are Jailer.',
+        systemPrompt: 'You are MIX.',
       );
       final result = await agent.runConversation('Loop on a broken tool');
       expect(result.completed, isFalse);
@@ -286,9 +286,9 @@ void main() {
         ),
         client: script,
       );
-      final agent = JailerAgent(
+      final agent = MIXAgent(
         llm: llm,
-        systemPrompt: 'You are Jailer.',
+        systemPrompt: 'You are MIX.',
       );
       final result = await agent.runConversation('Mix of failures and success');
       expect(result.completed, isTrue);
@@ -298,7 +298,7 @@ void main() {
   });
 
   group('sanitizeToolPairing（残缺 tool 配对清洗）', () {
-    late JailerAgent agent;
+    late MIXAgent agent;
 
     setUp(() {
       final script = ScriptedLlmClient([]);
@@ -310,7 +310,7 @@ void main() {
         ),
         client: script,
       );
-      agent = JailerAgent(llm: llm, systemPrompt: 'You are Jailer.');
+      agent = MIXAgent(llm: llm, systemPrompt: 'You are MIX.');
     });
 
     Map<String, dynamic> assistantWithToolCalls(List<Map<String, dynamic>> calls,

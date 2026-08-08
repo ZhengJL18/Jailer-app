@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:markdown/markdown.dart' as m;
-import 'package:jailer/printnotes/markdown/markdown_widget/markdown_widget.dart';
+import 'package:mix/printnotes/markdown/markdown_widget/markdown_widget.dart';
 
 ///Tag: [MarkdownTag.wl]
 

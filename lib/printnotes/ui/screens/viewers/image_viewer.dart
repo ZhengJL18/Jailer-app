@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:share_plus/share_plus.dart';
 
-import 'package:jailer/printnotes/utils/file_info.dart';
-import 'package:jailer/printnotes/utils/open_explorer.dart';
+import 'package:mix/printnotes/utils/file_info.dart';
+import 'package:mix/printnotes/utils/open_explorer.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
 
 class ImageViewScreen extends StatelessWidget {
   const ImageViewScreen({super.key, required this.imageUri});

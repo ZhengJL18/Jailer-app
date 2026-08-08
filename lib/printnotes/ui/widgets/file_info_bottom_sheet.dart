@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:jailer/printnotes/utils/file_info.dart';
+import 'package:mix/printnotes/utils/file_info.dart';
 
 Future modalShowFileInfo(BuildContext context, Uri fileUri) =>
     showModalBottomSheet(

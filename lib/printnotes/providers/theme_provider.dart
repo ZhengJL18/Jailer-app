@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:jailer/printnotes/constants/themes/theme_color_data.dart';
-import 'package:jailer/printnotes/utils/config_file/custom_themes/theme_json_handler.dart';
-import 'package:jailer/printnotes/utils/configs/user_preference.dart';
+import 'package:mix/printnotes/constants/themes/theme_color_data.dart';
+import 'package:mix/printnotes/utils/config_file/custom_themes/theme_json_handler.dart';
+import 'package:mix/printnotes/utils/configs/user_preference.dart';
 
 class ThemeProvider with ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;

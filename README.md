@@ -1,4 +1,4 @@
-# Hermes
+# MIX
 
 在 Flutter 隔离墙（Android App 沙盒）内实现 agent 级能力的纯 Dart 框架。
 
@@ -38,7 +38,7 @@
 ```
 lib/
 ├── agent/          # Agent 核心循环
-├── config/         # LLM 配置（jailer_config / providers）
+├── config/         # LLM 配置（mix_config / providers）
 ├── db/             # SQLite 会话库（sessions / messages / FTS5）
 ├── llm/            # LLM 客户端（OpenAI 兼容 SSE 流式）
 ├── screens/        # 聊天 / 设置 / 历史 / 技能页面

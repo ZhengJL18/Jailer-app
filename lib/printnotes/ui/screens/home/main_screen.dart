@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
 
-import 'package:jailer/printnotes/ui/screens/home/main_scaffold.dart';
-import 'package:jailer/printnotes/ui/screens/home/intro_screen.dart';
-import 'package:jailer/printnotes/ui/screens/home/notes_display.dart';
-import 'package:jailer/printnotes/ui/components/drawer.dart';
-import 'package:jailer/printnotes/ui/components/dialogs/basic_popup.dart';
+import 'package:mix/printnotes/ui/screens/home/main_scaffold.dart';
+import 'package:mix/printnotes/ui/screens/home/intro_screen.dart';
+import 'package:mix/printnotes/ui/screens/home/notes_display.dart';
+import 'package:mix/printnotes/ui/components/drawer.dart';
+import 'package:mix/printnotes/ui/components/dialogs/basic_popup.dart';
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});

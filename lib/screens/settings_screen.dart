@@ -6,7 +6,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../config/jailer_config.dart';
+import '../config/mix_config.dart';
 import '../services/storage_permission.dart';
 import 'department_screen.dart';
 import 'fast_model_screen.dart';
@@ -64,7 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// 从 provider 的 /models 端点刷新模型列表。
   Future<void> _refreshModels() async {
     if (_fetchingModels) return;
-    final config = JailerConfig(
+    final config = MIXConfig(
       vendorId: _vendor,
       model: _model,
       apiKey: _apiKey.trim(),
@@ -92,7 +92,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
-    final config = await JailerConfig.load();
+    final config = await MIXConfig.load();
     setState(() {
       if (config != null) {
         _vendor = config.vendorId;
@@ -131,7 +131,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-    final config = JailerConfig(
+    final config = MIXConfig(
       vendorId: _vendor,
       model: _model,
       apiKey: _apiKey.trim(),
@@ -154,7 +154,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final labels = vendorLabels;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Hermes 设置')),
+      appBar: AppBar(title: const Text('MIX 设置')),
       body: Form(
         key: _formKey,
         child: ListView(

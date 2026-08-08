@@ -7,26 +7,26 @@ import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:share_plus/share_plus.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
-import 'package:jailer/printnotes/markdown/markdown_widget/config/toc.dart';
+import 'package:mix/printnotes/markdown/markdown_widget/config/toc.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/customization_provider.dart';
-import 'package:jailer/printnotes/providers/editor_config_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/customization_provider.dart';
+import 'package:mix/printnotes/providers/editor_config_provider.dart';
 
-import 'package:jailer/printnotes/utils/open_explorer.dart';
-import 'package:jailer/printnotes/utils/parsers/frontmatter_parser.dart';
-import 'package:jailer/printnotes/utils/parsers/csv_parser.dart';
+import 'package:mix/printnotes/utils/open_explorer.dart';
+import 'package:mix/printnotes/utils/parsers/frontmatter_parser.dart';
+import 'package:mix/printnotes/utils/parsers/csv_parser.dart';
 
-import 'package:jailer/printnotes/markdown/build_markdown.dart';
-import 'package:jailer/printnotes/markdown/editor_field.dart';
-import 'package:jailer/printnotes/markdown/toolbar/markdown_toolbar.dart';
+import 'package:mix/printnotes/markdown/build_markdown.dart';
+import 'package:mix/printnotes/markdown/editor_field.dart';
+import 'package:mix/printnotes/markdown/toolbar/markdown_toolbar.dart';
 
-import 'package:jailer/printnotes/ui/screens/editors/notes/editor_config_page.dart';
+import 'package:mix/printnotes/ui/screens/editors/notes/editor_config_page.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/centered_page_wrapper.dart';
-import 'package:jailer/printnotes/ui/widgets/file_info_bottom_sheet.dart';
-import 'package:jailer/printnotes/ui/widgets/custom_snackbar.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/centered_page_wrapper.dart';
+import 'package:mix/printnotes/ui/widgets/file_info_bottom_sheet.dart';
+import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
 class NoteEditorScreen extends StatefulWidget {
   const NoteEditorScreen(

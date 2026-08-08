@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'package:jailer/printnotes/constants/toolbar_items_list.dart';
-import 'package:jailer/printnotes/utils/config_file/toolbar_config_handler.dart';
-import 'package:jailer/printnotes/utils/configs/user_preference.dart';
+import 'package:mix/printnotes/constants/toolbar_items_list.dart';
+import 'package:mix/printnotes/utils/config_file/toolbar_config_handler.dart';
+import 'package:mix/printnotes/utils/configs/user_preference.dart';
 
 class EditorConfigProvider with ChangeNotifier {
   double _fontSize = 16;

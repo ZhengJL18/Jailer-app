@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/config/providers.dart';
+import 'package:mix/config/providers.dart';
 
 void main() {
   setUp(() {
@@ -9,7 +9,7 @@ void main() {
 
   group('normalizeProvider / aliases', () {
     test('normalize aliases to canonical', () {
-      // Jailer 单机 App：openai 保持 openai（独立厂商），不再路由到聚合器。
+      // MIX 单机 App：openai 保持 openai（独立厂商），不再路由到聚合器。
       expect(normalizeProvider('openai'), 'openai');
       expect(normalizeProvider('glm'), 'zai');
       expect(normalizeProvider('zhipu'), 'zai');

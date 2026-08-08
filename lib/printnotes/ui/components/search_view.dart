@@ -4,9 +4,9 @@ import 'package:path/path.dart' as path;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
 
 class SearchView extends StatelessWidget {
   const SearchView({

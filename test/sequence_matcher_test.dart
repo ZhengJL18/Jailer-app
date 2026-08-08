@@ -9,7 +9,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/tools/sequence_matcher.dart';
+import 'package:mix/tools/sequence_matcher.dart';
 
 void main() {
   group('合并条件（j1+k1）', () {

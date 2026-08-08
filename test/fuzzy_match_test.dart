@@ -2,7 +2,7 @@
 library;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/tools/fuzzy_match.dart';
+import 'package:mix/tools/fuzzy_match.dart';
 
 void main() {
   group('TestExactMatch', () {

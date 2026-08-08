@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:introduction_screen/introduction_screen.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/theme_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/theme_provider.dart';
 
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
-import 'package:jailer/printnotes/ui/widgets/custom_snackbar.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
 class IntroScreen extends StatelessWidget {
   const IntroScreen({super.key});

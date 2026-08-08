@@ -1,4 +1,4 @@
-package com.hermes.hermes
+package com.mix.app
 
 import android.Manifest
 import android.content.Intent
@@ -15,7 +15,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
-            "com.hermes.hermes/storage"
+            "com.mix.app/storage"
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 // 原生检测「所有文件访问」权限 —— 比 permission_handler 在鸿蒙上可靠。

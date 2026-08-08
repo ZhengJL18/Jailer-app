@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'package:jailer/printnotes/utils/config_file/custom_themes/custom_theme_model.dart';
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/utils/config_file/custom_themes/custom_theme_model.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
 
 void saveSelectedThemeToConfig(Map<String, dynamic> selectedThemes) {
   final configFileMap = DataPath.loadJsonConfigFile(DataPath.mainConfigFile);

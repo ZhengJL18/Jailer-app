@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/customization_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/customization_provider.dart';
 
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
-import 'package:jailer/printnotes/utils/handlers/file_extensions.dart';
-import 'package:jailer/printnotes/utils/parsers/csv_parser.dart';
-import 'package:jailer/printnotes/utils/parsers/frontmatter_parser.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/utils/handlers/file_extensions.dart';
+import 'package:mix/printnotes/utils/parsers/csv_parser.dart';
+import 'package:mix/printnotes/utils/parsers/frontmatter_parser.dart';
 
 /// Used by [StorageSystem.searchItem] with [StorageSystem.searchMultiFileContents]
 class SearchPayload {

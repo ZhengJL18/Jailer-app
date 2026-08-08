@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
-import 'package:jailer/printnotes/utils/config_file/toolbar_config_handler.dart';
+import 'package:mix/printnotes/utils/config_file/toolbar_config_handler.dart';
 
 List<ToolbarConfigItem> defaultToolbarList = [
   ToolbarConfigItem(key: 'toolbar_view_item', visible: true),

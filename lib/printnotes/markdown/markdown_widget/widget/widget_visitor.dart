@@ -1,6 +1,6 @@
 import 'package:flutter/cupertino.dart';
 import 'package:markdown/markdown.dart' as m;
-import 'package:jailer/printnotes/markdown/rendering/wiki_link.dart';
+import 'package:mix/printnotes/markdown/rendering/wiki_link.dart';
 import '../config/configs.dart';
 import './all.dart';
 

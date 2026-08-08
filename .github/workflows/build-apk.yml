@@ -65,7 +65,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hermes-app-release
+          name: mix-release
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 

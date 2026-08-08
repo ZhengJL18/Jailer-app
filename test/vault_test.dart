@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/services/vault_service.dart';
+import 'package:mix/services/vault_service.dart';
 
 void main() {
   group('vault 加密往返', () {

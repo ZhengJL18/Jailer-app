@@ -5,17 +5,17 @@ import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
 import 'package:animated_tree_view/animated_tree_view.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/selecting_provider.dart';
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/providers/customization_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/selecting_provider.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/providers/customization_provider.dart';
 
-import 'package:jailer/printnotes/utils/storage_system.dart';
-import 'package:jailer/printnotes/utils/handlers/file_extensions.dart';
-import 'package:jailer/printnotes/utils/handlers/item_sort.dart';
-import 'package:jailer/printnotes/utils/parsers/frontmatter_parser.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/utils/handlers/file_extensions.dart';
+import 'package:mix/printnotes/utils/handlers/item_sort.dart';
+import 'package:mix/printnotes/utils/parsers/frontmatter_parser.dart';
 
-import 'package:jailer/printnotes/ui/components/dialogs/bottom_menu_popup.dart';
+import 'package:mix/printnotes/ui/components/dialogs/bottom_menu_popup.dart';
 
 // Good luck to future me to understanding all this again if I need to change something later
 

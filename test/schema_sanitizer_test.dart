@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/tools/schema_sanitizer.dart';
+import 'package:mix/tools/schema_sanitizer.dart';
 
 void main() {
   group('sanitizeToolSchemas', () {

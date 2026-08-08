@@ -1,6 +1,6 @@
 {
-    "name": "jailer",
-    "short_name": "jailer",
+    "name": "mix",
+    "short_name": "mix",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

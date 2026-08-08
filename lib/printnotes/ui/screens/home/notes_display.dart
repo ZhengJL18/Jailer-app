@@ -4,22 +4,22 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/selecting_provider.dart';
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/providers/customization_provider.dart';
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/selecting_provider.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/providers/customization_provider.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
 
-import 'package:jailer/printnotes/utils/handlers/style_handler.dart';
-import 'package:jailer/printnotes/utils/handlers/item_move.dart';
-import 'package:jailer/printnotes/utils/handlers/item_delete.dart';
+import 'package:mix/printnotes/utils/handlers/style_handler.dart';
+import 'package:mix/printnotes/utils/handlers/item_move.dart';
+import 'package:mix/printnotes/utils/handlers/item_delete.dart';
 
-import 'package:jailer/printnotes/ui/screens/layout/grid_list_view.dart';
-import 'package:jailer/printnotes/ui/screens/layout/tree_view.dart';
+import 'package:mix/printnotes/ui/screens/layout/grid_list_view.dart';
+import 'package:mix/printnotes/ui/screens/layout/tree_view.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/drawer_rail.dart';
-import 'package:jailer/printnotes/ui/widgets/speed_dial_fab.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/drawer_rail.dart';
+import 'package:mix/printnotes/ui/widgets/speed_dial_fab.dart';
 
 class NotesDisplay extends StatefulWidget {
   const NotesDisplay({

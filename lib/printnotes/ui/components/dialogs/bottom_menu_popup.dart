@@ -2,14 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/selecting_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/selecting_provider.dart';
 
-import 'package:jailer/printnotes/utils/handlers/item_move.dart';
-import 'package:jailer/printnotes/utils/handlers/item_rename.dart';
-import 'package:jailer/printnotes/utils/handlers/item_duplication.dart';
-import 'package:jailer/printnotes/utils/handlers/item_archive.dart';
-import 'package:jailer/printnotes/utils/handlers/item_delete.dart';
+import 'package:mix/printnotes/utils/handlers/item_move.dart';
+import 'package:mix/printnotes/utils/handlers/item_rename.dart';
+import 'package:mix/printnotes/utils/handlers/item_duplication.dart';
+import 'package:mix/printnotes/utils/handlers/item_archive.dart';
+import 'package:mix/printnotes/utils/handlers/item_delete.dart';
 
 void showBottomMenu(
   BuildContext context,

@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:jailer/printnotes/constants/constants.dart';
+import 'package:mix/printnotes/constants/constants.dart';
 
-import 'package:jailer/printnotes/utils/handlers/file_extensions.dart';
-import 'package:jailer/printnotes/ui/screens/viewers/image_viewer.dart';
-import 'package:jailer/printnotes/ui/screens/editors/notes/note_editor.dart';
+import 'package:mix/printnotes/utils/handlers/file_extensions.dart';
+import 'package:mix/printnotes/ui/screens/viewers/image_viewer.dart';
+import 'package:mix/printnotes/ui/screens/editors/notes/note_editor.dart';
 
 class NavigationProvider with ChangeNotifier {
   final List<String> _routeHistory = [];

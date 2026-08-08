@@ -1,5 +1,5 @@
 import 'package:path/path.dart' as path;
-import 'package:jailer/printnotes/constants/constants.dart';
+import 'package:mix/printnotes/constants/constants.dart';
 
 enum CFileType {
   note,

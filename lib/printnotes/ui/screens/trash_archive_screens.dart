@@ -4,13 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/utils/handlers/item_archive.dart';
-import 'package:jailer/printnotes/utils/handlers/item_delete.dart';
-import 'package:jailer/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/utils/handlers/item_archive.dart';
+import 'package:mix/printnotes/utils/handlers/item_delete.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
 
 class TrashArchiveScreen extends StatefulWidget {
   const TrashArchiveScreen({super.key, required this.screenName});

@@ -1,31 +1,31 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:jailer/printnotes/markdown/rendering/strikethrough.dart';
-import 'package:jailer/printnotes/markdown/rendering/subscript.dart';
-import 'package:jailer/printnotes/markdown/rendering/superscript.dart';
+import 'package:mix/printnotes/markdown/rendering/strikethrough.dart';
+import 'package:mix/printnotes/markdown/rendering/subscript.dart';
+import 'package:mix/printnotes/markdown/rendering/superscript.dart';
 import 'package:provider/provider.dart';
 import './markdown_widget/markdown_widget.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 
-import 'package:jailer/printnotes/providers/theme_provider.dart';
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/editor_config_provider.dart';
+import 'package:mix/printnotes/providers/theme_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/editor_config_provider.dart';
 
 import 'package:flutter_highlight/theme_map.dart';
 import 'package:flutter_highlight/themes/a11y-light.dart';
 import 'package:flutter_highlight/themes/a11y-dark.dart';
 
-import 'package:jailer/printnotes/markdown/rendering/code_wrapper.dart';
-import 'package:jailer/printnotes/markdown/rendering/custom_img_builder.dart';
-import 'package:jailer/printnotes/markdown/rendering/custom_node.dart';
-import 'package:jailer/printnotes/markdown/rendering/latex.dart';
-import 'package:jailer/printnotes/markdown/rendering/wiki_link.dart';
-import 'package:jailer/printnotes/markdown/rendering/highlighter.dart';
-import 'package:jailer/printnotes/markdown/rendering/underline.dart';
-import 'package:jailer/printnotes/markdown/rendering/note_tags.dart';
+import 'package:mix/printnotes/markdown/rendering/code_wrapper.dart';
+import 'package:mix/printnotes/markdown/rendering/custom_img_builder.dart';
+import 'package:mix/printnotes/markdown/rendering/custom_node.dart';
+import 'package:mix/printnotes/markdown/rendering/latex.dart';
+import 'package:mix/printnotes/markdown/rendering/wiki_link.dart';
+import 'package:mix/printnotes/markdown/rendering/highlighter.dart';
+import 'package:mix/printnotes/markdown/rendering/underline.dart';
+import 'package:mix/printnotes/markdown/rendering/note_tags.dart';
 
-import 'package:jailer/printnotes/markdown/link_handler.dart';
+import 'package:mix/printnotes/markdown/link_handler.dart';
 
 MarkdownConfig theMarkdownConfigs(
   BuildContext context, {

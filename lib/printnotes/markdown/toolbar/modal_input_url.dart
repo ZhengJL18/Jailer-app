@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:jailer/printnotes/markdown/toolbar/toolbar.dart';
+import 'package:mix/printnotes/markdown/toolbar/toolbar.dart';
 
 class ModalInputUrl extends StatelessWidget {
   const ModalInputUrl({

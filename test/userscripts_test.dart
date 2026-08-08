@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/tools/userscripts.dart';
+import 'package:mix/tools/userscripts.dart';
 
 void main() {
   group('userScriptsForHost', () {

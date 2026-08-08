@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:jailer/tools/url_safety.dart';
-import 'package:jailer/tools/web_tools.dart';
+import 'package:mix/tools/url_safety.dart';
+import 'package:mix/tools/web_tools.dart';
 
 void main() {
   group('url_safety', () {

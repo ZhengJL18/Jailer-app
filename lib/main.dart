@@ -23,7 +23,7 @@ import 'agent/agent.dart';
 import 'agent/company.dart';
 import 'agent/context_compressor.dart';
 import 'agent/workflow.dart';
-import 'config/jailer_config.dart';
+import 'config/mix_config.dart';
 import 'db/session_db.dart';
 import 'llm/openai_llm.dart';
 import 'notes/notes_paths.dart';
@@ -71,15 +71,15 @@ void main() async {
   try {
     await App.init();
   } catch (_) {}
-  runApp(const JailerApp());
+  runApp(const MIXApp());
 }
 
 /// 对话历史页「继续聊天」回调：切换 ChatScreen 到指定会话。
 /// 由 ChatScreen 注册，HistoryScreen 调用。
 Future<void> Function(String sessionId)? resumeSessionHandler;
 
-class JailerApp extends StatelessWidget {
-  const JailerApp({super.key});
+class MIXApp extends StatelessWidget {
+  const MIXApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -105,7 +105,7 @@ class JailerApp extends StatelessWidget {
             valueListenable: themeController.brightnessNotifier,
             builder: (context, brightness, child) {
               return MaterialApp(
-                title: 'Hermes',
+                title: 'MIX',
                 theme: themeController.themeData,
                 home: const ChatScreen(),
               );
@@ -277,7 +277,7 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _pendingPlan; // 待批准的计划。
   String? _pendingTask; // 待执行的任务原文（批准计划后执行用）。
   String _workflowId = 'daily'; // 当前工作流（AgentWorkflow）。
-  JailerAgent? _activeAgent;
+  MIXAgent? _activeAgent;
   MultiAgentService? _multiAgent;
   int _discussionMsgIdx = -1; // 当前讨论消息索引（-1 表示无）。
   final Map<String, String> _lastPerspectiveOutputs = {}; // 视角 → 最终发言。
@@ -526,7 +526,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// Plan 模式：只读探索任务，生成计划并展示（不执行写操作）。
   Future<void> _generatePlan(String task) async {
-    final config = await JailerConfig.load();
+    final config = await MIXConfig.load();
     if (config == null) {
       setState(() => _running = false);
       _addAssistant('请先配置 AI');
@@ -537,9 +537,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _pendingPlan = null;
     });
     final llm = OpenAiLlmClient(config: config.toLlmConfig());
-    final planAgent = JailerAgent(
+    final planAgent = MIXAgent(
       llm: llm,
-      systemPrompt: '你是 Hermes，处于计划模式。你现在只做探索和规划，'
+      systemPrompt: '你是 MIX，处于计划模式。你现在只做探索和规划，'
           '绝对不要修改/创建/删除任何文件，不要 git add/commit/push。'
           '可以用 read_file / search_files / git_status / git_diff 探索当前状态，'
           '然后输出一个清晰的执行计划：列出要做的步骤、每步做什么、'
@@ -594,7 +594,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 用完整工具集执行任务（现有 _send 主体逻辑抽取）。
   Future<void> _runTaskWithFullTools(String task, {bool skipRetrieval = false}) async {
-    final config = await JailerConfig.load();
+    final config = await MIXConfig.load();
     if (config == null) {
       // 经 _executePlan 进入时 _running 已置 true，此处复位防 UI 永久锁死。
       setState(() => _running = false);
@@ -622,7 +622,7 @@ class _ChatScreenState extends State<ChatScreen> {
     // plan 执行时跳过（计划本身已是上下文，避免基于长拼接文本搜到无关内容）。
     final retrieved =
         skipRetrieval ? <ContextHit>[] : await _retrieveRelevantContext(task);
-    _activeAgent = JailerAgent(
+    _activeAgent = MIXAgent(
       llm: llm,
       memoryManager: _memory,
       sessionDb: _sessionDb,
@@ -808,7 +808,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (engine == null) return '{"error":"学习引擎未初始化"}';
     final svc = _studyQuestionService;
     if (svc == null) {
-      final config = await JailerConfig.load();
+      final config = await MIXConfig.load();
       if (config == null) return '{"error":"AI 未配置"}';
       final dir = (await getApplicationDocumentsDirectory()).path;
       _studyQuestionService = StudyQuestionService(
@@ -846,7 +846,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _suggestRefineInner() async {
     var refine = _refine;
     if (refine == null) {
-      final config = await JailerConfig.load();
+      final config = await MIXConfig.load();
       final traj = _trajectory;
       final notes = _promptNotes;
       final journal = _editJournal;
@@ -905,9 +905,9 @@ class _ChatScreenState extends State<ChatScreen> {
   /// 惰性创建多代理执行器（子代理/部门/讨论共用，复用连接）。
   Future<MultiAgentService?> _ensureMultiAgent() async {
     if (_multiAgent != null) return _multiAgent;
-    final config = await JailerConfig.load();
+    final config = await MIXConfig.load();
     if (config == null) return null;
-    final fast = await JailerConfig.loadFastConfig();
+    final fast = await MIXConfig.loadFastConfig();
     _multiAgent = MultiAgentService(
       llm: OpenAiLlmClient(config: config.toLlmConfig()),
       fastLlm: fast != null ? OpenAiLlmClient(config: fast) : null,
@@ -1037,7 +1037,7 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Hermes 想确认一下'),
+          title: const Text('MIX 想确认一下'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1224,7 +1224,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _running = true);
     _controller.clear();
 
-    final config = await JailerConfig.load();
+    final config = await MIXConfig.load();
     if (config == null) {
       setState(() => _running = false);
       _addUser(text);
@@ -1279,7 +1279,7 @@ class _ChatScreenState extends State<ChatScreen> {
         autofocus: true,
         child: Scaffold(
       appBar: AppBar(
-        title: const Text('Hermes'),
+        title: const Text('MIX'),
         actions: [
           // 工作流选择器。
           PopupMenuButton<String>(
@@ -1462,7 +1462,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 32),
                       child: Text(
-                        'Hermes —— 沙盒内的 agent。\n输入任务试试，'
+                        'MIX —— 沙盒内的 agent。\n输入任务试试，'
                         '比如：在 notes 目录写一首关于安卓的俳句并读给我看',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: context.appPalette.textSecondary),
@@ -1813,7 +1813,7 @@ class _ChatScreenState extends State<ChatScreen> {
             constraints: BoxConstraints(
               maxWidth: MediaQuery.of(context).size.width * 0.85,
             ),
-            child: HermesMarkdown(
+            child: MIXMarkdown(
               data: m.text ?? '',
               selectable: true,
             ),

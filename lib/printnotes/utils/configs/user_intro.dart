@@ -1,4 +1,4 @@
-import 'package:jailer/printnotes/app.dart';
+import 'package:mix/printnotes/app.dart';
 
 class UserFirstTime {
   static void setShowIntro(bool showIntro) {

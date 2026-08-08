@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/db/session_db.dart';
+import 'package:mix/db/session_db.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {

@@ -201,8 +201,8 @@ Signature _makeSignature(Repository repo, String? name, String? email) {
     return Signature.defaultSignature(repo);
   } catch (_) {
     return Signature.create(
-      name: name ?? 'Hermes',
-      email: email ?? 'hermes@localhost',
+      name: name ?? 'MIX',
+      email: email ?? 'mix@localhost',
     );
   }
 }

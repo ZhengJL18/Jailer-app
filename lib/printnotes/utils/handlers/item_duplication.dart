@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/utils/storage_system.dart';
-import 'package:jailer/printnotes/ui/widgets/custom_snackbar.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
 class ItemDuplicationHandler {
   final BuildContext context;

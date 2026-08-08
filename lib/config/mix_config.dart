@@ -1,4 +1,4 @@
-/// Jailer 配置持久化 —— 复用 MIX `AiSettings` 的 SharedPreferences 模式。
+/// MIX 配置持久化 —— 复用 MIX `AiSettings` 的 SharedPreferences 模式。
 ///
 /// 存储 vendor/model/key/baseUrl，经 [providers.dart] 的解析链解析成 LlmConfig。
 library;
@@ -12,14 +12,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../llm/openai_llm.dart';
 import 'providers.dart';
 
-/// Jailer 配置。
-class JailerConfig {
+/// MIX 配置。
+class MIXConfig {
   final String vendorId;
   final String model;
   final String apiKey;
   final String baseUrl;
 
-  const JailerConfig({
+  const MIXConfig({
     required this.vendorId,
     required this.model,
     required this.apiKey,
@@ -48,13 +48,13 @@ class JailerConfig {
   }
 
   /// 从 SharedPreferences 读取。
-  static Future<JailerConfig?> load() async {
+  static Future<MIXConfig?> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final vendorId = prefs.getString('jailer_vendor') ?? '';
-    final model = prefs.getString('jailer_model') ?? '';
-    final apiKey = prefs.getString('jailer_api_key') ?? '';
-    final baseUrl = prefs.getString('jailer_base_url') ?? '';
-    final config = JailerConfig(
+    final vendorId = prefs.getString('mix_vendor') ?? '';
+    final model = prefs.getString('mix_model') ?? '';
+    final apiKey = prefs.getString('mix_api_key') ?? '';
+    final baseUrl = prefs.getString('mix_base_url') ?? '';
+    final config = MIXConfig(
       vendorId: vendorId,
       model: model,
       apiKey: apiKey,
@@ -66,10 +66,10 @@ class JailerConfig {
   /// 写入 SharedPreferences。
   Future<void> save() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('jailer_vendor', vendorId);
-    await prefs.setString('jailer_model', model);
-    await prefs.setString('jailer_api_key', apiKey);
-    await prefs.setString('jailer_base_url', baseUrl);
+    await prefs.setString('mix_vendor', vendorId);
+    await prefs.setString('mix_model', model);
+    await prefs.setString('mix_api_key', apiKey);
+    await prefs.setString('mix_base_url', baseUrl);
   }
 
   /// 转换成 LlmConfig。
@@ -136,7 +136,7 @@ Future<void> initConfig() async {
   final prefs = await SharedPreferences.getInstance();
   keyResolver = (envVar) {
     // env var 名 → 单一存储 key（App 只有一个 key 槽）。
-    return prefs.getString('jailer_api_key');
+    return prefs.getString('mix_api_key');
   };
 }
 

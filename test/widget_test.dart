@@ -2,7 +2,7 @@
 // 无限动画卡死 CI）。只测配置模型的纯逻辑。
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/config/jailer_config.dart';
+import 'package:mix/config/mix_config.dart';
 
 void main() {
   test('vendor 模型预设非空', () {
@@ -11,8 +11,8 @@ void main() {
     expect(vendorLabels['deepseek'], 'DeepSeek');
   });
 
-  test('JailerConfig 缺 key 不完整', () {
-    const config = JailerConfig(
+  test('MIXConfig 缺 key 不完整', () {
+    const config = MIXConfig(
       vendorId: 'deepseek',
       model: 'deepseek-chat',
       apiKey: '',

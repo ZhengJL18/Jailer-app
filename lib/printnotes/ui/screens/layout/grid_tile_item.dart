@@ -3,21 +3,21 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:path/path.dart' as path;
-import 'package:jailer/printnotes/markdown/markdown_widget/markdown_widget.dart';
+import 'package:mix/printnotes/markdown/markdown_widget/markdown_widget.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/navigation_provider.dart';
-import 'package:jailer/printnotes/providers/selecting_provider.dart';
-import 'package:jailer/printnotes/providers/customization_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart';
+import 'package:mix/printnotes/providers/selecting_provider.dart';
+import 'package:mix/printnotes/providers/customization_provider.dart';
 
-import 'package:jailer/printnotes/utils/storage_system.dart';
-import 'package:jailer/printnotes/utils/handlers/style_handler.dart';
-import 'package:jailer/printnotes/utils/handlers/file_extensions.dart';
-import 'package:jailer/printnotes/utils/parsers/frontmatter_parser.dart';
-import 'package:jailer/printnotes/utils/parsers/hex_color_extension.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/utils/handlers/style_handler.dart';
+import 'package:mix/printnotes/utils/handlers/file_extensions.dart';
+import 'package:mix/printnotes/utils/parsers/frontmatter_parser.dart';
+import 'package:mix/printnotes/utils/parsers/hex_color_extension.dart';
 
-import 'package:jailer/printnotes/markdown/build_markdown.dart';
-import 'package:jailer/printnotes/ui/components/dialogs/bottom_menu_popup.dart';
+import 'package:mix/printnotes/markdown/build_markdown.dart';
+import 'package:mix/printnotes/ui/components/dialogs/bottom_menu_popup.dart';
 
 class GridTileItem extends StatelessWidget {
   const GridTileItem({super.key, required this.item, required this.onChange});

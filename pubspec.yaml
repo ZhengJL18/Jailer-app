@@ -1,5 +1,5 @@
-name: jailer
-description: "A new Flutter project."
+name: mix
+description: "MIX - 基于推荐算法、像刷抖音一样学习的 Flutter 学习 App"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

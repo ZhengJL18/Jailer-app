@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:jailer/llm/openai_llm.dart';
+import 'package:mix/llm/openai_llm.dart';
 
 /// 构造一个返回合成 SSE 流的 MockClient。
 http.Client mockSseClient(List<String> lines) {

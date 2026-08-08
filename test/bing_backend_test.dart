@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:jailer/tools/web_tools.dart';
+import 'package:mix/tools/web_tools.dart';
 
 /// UTF-8 编码的 XML 响应（MockClient 默认 Latin-1，中文会乱码）。
 http.Response xmlResp(String body, [int status = 200]) => http.Response.bytes(

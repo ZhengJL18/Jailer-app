@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import 'package:jailer/printnotes/ui/widgets/menu_tile.dart';
+import 'package:mix/printnotes/ui/widgets/menu_tile.dart';
 
-import 'package:jailer/printnotes/utils/handlers/open_url_link.dart';
-import 'package:jailer/printnotes/constants/library_list.dart';
+import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
+import 'package:mix/printnotes/constants/library_list.dart';
 
 void showLibrariesDialog(BuildContext context) {
   showDialog(

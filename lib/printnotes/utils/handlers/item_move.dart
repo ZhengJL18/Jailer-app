@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/utils/configs/data_path.dart';
-import 'package:jailer/printnotes/utils/storage_system.dart';
-import 'package:jailer/printnotes/ui/components/dialogs/select_location.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/utils/configs/data_path.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/ui/components/dialogs/select_location.dart';
 
 class ItemMoveHandler {
   static Future<void> showMoveDialog(BuildContext context, List<Uri> itemUris,

@@ -226,7 +226,7 @@ discord_tool / feishu_doc / feishu_drive / homeassistant_tool / x_search_tool / 
 
 ## 六、复刻顺序建议
 
-> 综合三份子代理数据。Dart 侧目录建议 `lib/jailer/`。
+> 综合三份子代理数据。Dart 侧目录建议 `lib/mix/`。
 
 ### P0-A 骨架与协议（先行，打通工具闭环）
 | Dart 模块 | 复刻自 | 内容 |

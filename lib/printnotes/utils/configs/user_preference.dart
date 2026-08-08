@@ -1,4 +1,4 @@
-import 'package:jailer/printnotes/app.dart';
+import 'package:mix/printnotes/app.dart';
 
 // TODO: Add button to reset all settings including config file
 // Delete all set preferences

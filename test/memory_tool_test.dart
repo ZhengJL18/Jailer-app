@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:jailer/tools/memory_manager.dart';
-import 'package:jailer/tools/memory_tool.dart';
+import 'package:mix/tools/memory_manager.dart';
+import 'package:mix/tools/memory_tool.dart';
 
 void main() {
   late Directory tmp;

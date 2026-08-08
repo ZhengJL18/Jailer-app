@@ -5,7 +5,7 @@
 ///
 /// ## Dart 适配
 /// - `api_key_env_vars`（env var 检查）→ [keyResolver] 钩子（App 从 SharedPreferences
-///   读 key，见 jailer_config.dart）。保留 env var 语义作为默认实现。
+///   读 key，见 mix_config.dart）。保留 env var 语义作为默认实现。
 /// - `models.dev` 远程目录 → 内置精简预设表 [builtinProviderDefs]（覆盖 App 实际
 ///   用的 provider）。解析链结构逐函数保留。
 /// - `get_provider` 的 allow_network（远程 models.dev 拉取）→ App 无网络目录，简化。
@@ -79,7 +79,7 @@ class ProviderDef {
 
 const Map<String, String> aliases = {
   // 注意：Hermes 原版把裸 'openai' 路由到 openrouter 聚合器（省钱）。
-  // Jailer 是单机 App，设置页把 OpenAI 当独立厂商 —— 用户选 OpenAI 应连
+  // MIX 是单机 App，设置页把 OpenAI 当独立厂商 —— 用户选 OpenAI 应连
   // api.openai.com。要 openrouter 直接选 openrouter 厂商。
 
   // zai

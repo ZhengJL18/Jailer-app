@@ -1,13 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:jailer/printnotes/ui/screens/layout/grid_tile_item.dart';
+import 'package:mix/printnotes/ui/screens/layout/grid_tile_item.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
-import 'package:jailer/printnotes/providers/settings_provider.dart';
-import 'package:jailer/printnotes/providers/selecting_provider.dart';
-import 'package:jailer/printnotes/providers/customization_provider.dart';
+import 'package:mix/printnotes/providers/settings_provider.dart';
+import 'package:mix/printnotes/providers/selecting_provider.dart';
+import 'package:mix/printnotes/providers/customization_provider.dart';
 
 class GridListView extends StatefulWidget {
   const GridListView({

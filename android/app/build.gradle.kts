@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.hermes.hermes"
+    namespace = "com.mix.app"
     // permission_handler_android 要求 compileSdk 37+。
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
@@ -29,7 +29,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.hermes.hermes"
+        applicationId = "com.mix.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

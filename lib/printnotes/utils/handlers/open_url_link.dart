@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:jailer/printnotes/ui/components/dialogs/basic_popup.dart';
-import 'package:jailer/printnotes/ui/widgets/custom_snackbar.dart';
+import 'package:mix/printnotes/ui/components/dialogs/basic_popup.dart';
+import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
 Future<void> urlHandler(BuildContext context, String url,
     {bool copyToClipboard = false}) async {

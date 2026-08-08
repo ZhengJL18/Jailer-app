@@ -1,7 +1,7 @@
 /// delegate_task 工具：agent 派子任务给子 agent 并行处理。
 ///
 /// 子 agent 用独立 LLM 调用 + 工具执行，返回结果给主 agent。
-/// 通过全局 [delegateHandler] 由 ChatScreen 提供（复用 JailerAgent）。
+/// 通过全局 [delegateHandler] 由 ChatScreen 提供（复用 MIXAgent）。
 library;
 
 import 'registry.dart';

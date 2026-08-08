@@ -1,4 +1,4 @@
-import 'package:jailer/printnotes/oss_licenses.dart';
+import 'package:mix/printnotes/oss_licenses.dart';
 
 class Library {
   final String name;

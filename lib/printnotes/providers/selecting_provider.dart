@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import 'package:jailer/printnotes/utils/storage_system.dart';
+import 'package:mix/printnotes/utils/storage_system.dart';
 
 class SelectingProvider with ChangeNotifier {
   bool _selectingMode = false;

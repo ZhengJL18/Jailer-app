@@ -32,7 +32,7 @@ class UpdateInfo {
 /// 版本源：GitHub Releases（CI 每次 push 发 release，tag = v1.0.0+<run_number>）。
 /// App 启动时 checkForUpdate()，有新版返回 UpdateInfo，无/失败返回 null（静默）。
 class UpdateService {
-  static const String _repo = 'ZhengJL18/hermes-app';
+  static const String _repo = 'ZhengJL18/MIX';
   static const Duration _timeout = Duration(seconds: 15);
 
   /// 查最新 release，与本地版本比较。有新版返回 UpdateInfo，否则 null。
@@ -58,7 +58,7 @@ class UpdateService {
             Uri.parse('https://api.github.com/repos/$_repo/releases/latest'),
             headers: {
               'Accept': 'application/vnd.github+json',
-              'User-Agent': 'Hermes-app',
+              'User-Agent': 'MIX-app',
             },
           )
           .timeout(_timeout);

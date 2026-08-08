@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:provider/provider.dart';
 
-import 'package:jailer/printnotes/providers/theme_provider.dart';
+import 'package:mix/printnotes/providers/theme_provider.dart';
 
-import 'package:jailer/printnotes/utils/handlers/open_url_link.dart';
-import 'package:jailer/printnotes/utils/config_file/custom_themes/custom_theme_model.dart';
-import 'package:jailer/printnotes/utils/config_file/custom_themes/theme_validator.dart';
-import 'package:jailer/printnotes/utils/config_file/custom_themes/theme_json_handler.dart';
+import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
+import 'package:mix/printnotes/utils/config_file/custom_themes/custom_theme_model.dart';
+import 'package:mix/printnotes/utils/config_file/custom_themes/theme_validator.dart';
+import 'package:mix/printnotes/utils/config_file/custom_themes/theme_json_handler.dart';
 
-import 'package:jailer/printnotes/ui/components/app_bar_drag_wrapper.dart';
-import 'package:jailer/printnotes/ui/components/centered_page_wrapper.dart';
-import 'package:jailer/printnotes/ui/widgets/custom_snackbar.dart';
+import 'package:mix/printnotes/ui/components/app_bar_drag_wrapper.dart';
+import 'package:mix/printnotes/ui/components/centered_page_wrapper.dart';
+import 'package:mix/printnotes/ui/widgets/custom_snackbar.dart';
 
 class CustomThemePage extends StatefulWidget {
   const CustomThemePage({super.key});

@@ -48,7 +48,7 @@ class ConversationResult {
 }
 
 /// Agent 主循环。
-class JailerAgent {
+class MIXAgent {
   /// LLM 客户端。
   final OpenAiLlmClient llm;
 
@@ -104,7 +104,7 @@ class JailerAgent {
   /// 读取的深度，避免并行子代理共享全局 [currentAgentDepth] 时互相覆盖。
   final int agentDepth;
 
-  JailerAgent({
+  MIXAgent({
     required this.llm,
     required this.systemPrompt,
     this.toolDefinitionsProvider,
